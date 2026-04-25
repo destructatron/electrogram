@@ -200,7 +200,7 @@ class TelegramManager {
     if (!this.client) return
     this.client.addEventHandler(async (event) => {
       const msg = event.message
-      this.messagesCache.set(msg.id, msg)
+      this.messagesCache.set(Number(msg.id), msg)
       const sender = await msg.getSender()
       const voiceInfo = this.getVoiceInfo(msg)
       const serviceText = await this.getServiceText(msg)
@@ -209,7 +209,7 @@ class TelegramManager {
       if (msg.replyToMsgId) {
         const original = await msg.getReplyMessage()
         if (original) {
-          this.messagesCache.set(original.id, original)
+          this.messagesCache.set(Number(original.id), original)
           replyTo = {
             id: original.id,
             senderName: original.out ? 'You' : this.getDisplayName(original.sender),
@@ -285,18 +285,27 @@ class TelegramManager {
           action: update.action.className
         })
       } else if (update.className === 'UpdateEditMessage' || update.className === 'UpdateEditChannelMessage') {
-        const msg = update.message
-        if (msg) {
-          this.messagesCache.set(msg.id, msg)
+        const rawMsg = update.message
+        if (rawMsg) {
+          // Re-fetch to get a fully-initialized GramJS Message object with _client
+          let msg = rawMsg
+          try {
+            const entity = await this.client.getEntity(rawMsg.peerId)
+            const fetched = await this.client.getMessages(entity, { ids: rawMsg.id })
+            if (fetched && fetched.length > 0 && fetched[0]) {
+              msg = fetched[0]
+            }
+          } catch (err) {
+            console.error('Failed to fetch edited message, using raw update:', err)
+          }
+          this.messagesCache.set(Number(msg.id), msg)
           const voiceInfo = this.getVoiceInfo(msg)
           const fileInfo = this.getFileInfo(msg)
           const inlineButtons = this.getInlineButtons(msg)
-          // Use msg.message (raw MTProto string) instead of msg.text (GramJS getter
-          // that needs _client to be set, which is not initialized on raw updates)
           this.pushUpdate({
             type: 'editMessage',
             id: msg.id,
-            text: msg.message || '',
+            text: msg.text || msg.message || '',
             hasDocument: !!fileInfo,
             fileName: fileInfo ? fileInfo.fileName : null,
             documentSize: fileInfo ? Number(fileInfo.documentSize) || 0 : 0,
@@ -401,7 +410,7 @@ class TelegramManager {
     const msgMap = new Map()
     messages.forEach(m => msgMap.set(m.id, m))
     const result = await Promise.all(messages.map(async (m) => {
-      this.messagesCache.set(m.id, m)
+      this.messagesCache.set(Number(m.id), m)
       const voiceInfo = this.getVoiceInfo(m)
       const serviceText = await this.getServiceText(m)
       const fileInfo = this.getFileInfo(m)
@@ -442,7 +451,7 @@ class TelegramManager {
     const cached = this.dialogsCache.get(dialogId)
     const entity = cached || dialogId
     const result = await this.client.sendMessage(entity, { message: text, replyTo: replyToMsgId || undefined })
-    this.messagesCache.set(result.id, result)
+    this.messagesCache.set(Number(result.id), result)
     const me = await this.client.getMe()
     const voiceInfo = this.getVoiceInfo(result)
     const serviceText = await this.getServiceText(result)
@@ -466,7 +475,7 @@ class TelegramManager {
     const entity = cached || dialogId
     const result = await this.client.editMessage(entity, { message: messageId, text: newText })
     if (!result) throw new Error('Edit returned no message')
-    this.messagesCache.set(result.id, result)
+    this.messagesCache.set(Number(result.id), result)
     return {
       id: result.id,
       text: result.text || ''
@@ -519,7 +528,7 @@ class TelegramManager {
         })
       ]
     })
-    this.messagesCache.set(result.id, result)
+    this.messagesCache.set(Number(result.id), result)
     const me = await this.client.getMe()
     const voiceInfo = this.getVoiceInfo(result)
     const serviceText = await this.getServiceText(result)
@@ -549,7 +558,7 @@ class TelegramManager {
       const result = await this.client.sendFile(entity, { file: filePath, forceDocument: true, caption: fileCaption, replyTo })
       const msg = Array.isArray(result) ? result[0] : result
       if (msg) {
-        this.messagesCache.set(msg.id, msg)
+        this.messagesCache.set(Number(msg.id), msg)
         const voiceInfo = this.getVoiceInfo(msg)
         const serviceText = await this.getServiceText(msg)
         const fileInfo = this.getFileInfo(msg)
