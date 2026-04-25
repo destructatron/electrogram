@@ -176,7 +176,12 @@ npm run dist:win
 npm run dist:mac
 ```
 
-GitHub Actions (`.github/workflows/release.yml`) builds all three platforms and uploads artifacts to GitHub Releases when a `v*` tag is pushed.
+GitHub Actions builds all three platforms via two separate workflows:
+
+- **`.github/workflows/build.yml`** — runs on pushes to `main` and pull requests. Packages with `--publish=never` and uploads artifacts for CI inspection. Does **not** trigger on tags.
+- **`.github/workflows/release.yml`** — runs **only** on `v*` tag pushes. Sets `package.json` version from the tag (`npm version ${TAG#v} --no-git-tag-version`) before building, then packages with `--publish=never` and uploads binaries to the GitHub Release via `softprops/action-gh-release`.
+
+Important: `electron-builder` auto-detects git tags and tries to publish by default. Always pass `--publish=never` in CI unless the job has `contents: write` permission and is meant to create releases. The `build.yml` workflow lacks write permissions, so allowing auto-publish would cause 403 Forbidden errors.
 
 Unsigned binaries are produced by default. To enable code signing, set the `CSC_*` and `WIN_CSC_*` environment variables before running `electron-builder`.
 
