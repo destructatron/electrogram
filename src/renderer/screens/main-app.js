@@ -8,6 +8,7 @@ let currentAudio = null
 let currentMessageId = null
 let attachedFiles = []
 let replyingTo = null
+let editingMessage = null
 
 function ensureUnsubscribed() {
   if (unsubscribeUpdate) {
@@ -38,6 +39,7 @@ export function MainAppScreen() {
       <ul class="message-list" id="message-list" role="list" tabindex="-1" aria-label="Messages" style="display:none;"></ul>
       <div class="typing-indicator" id="typing-indicator" style="display:none;"></div>
       <div class="composer" id="composer" style="display:none;">
+        <div id="edit-preview" class="edit-preview" style="display:none;"></div>
         <div id="reply-preview" class="reply-preview" style="display:none;"></div>
         <div id="attachment-list" class="attachment-list" style="display:none;"></div>
         <textarea id="message-input" rows="1" aria-label="Message" placeholder="Type a message..."></textarea>
@@ -69,6 +71,7 @@ export function MainAppScreen() {
   const attachButton = container.querySelector('#attach-button')
   const attachmentList = container.querySelector('#attachment-list')
   const replyPreview = container.querySelector('#reply-preview')
+  const editPreview = container.querySelector('#edit-preview')
   const recordButton = container.querySelector('#record-button')
   const recordingUI = container.querySelector('#recording-ui')
   const stopRecordButton = container.querySelector('#stop-record-button')
@@ -190,6 +193,26 @@ export function MainAppScreen() {
   const typingUsers = new Map() // userId -> { userName, timer }
   const TYPING_TIMEOUT = 6000
 
+  function applyMessageEdit(messageId, newText) {
+    const idStr = String(messageId)
+    // Update in-memory message
+    const msg = messages.find(m => String(m.id) === idStr)
+    if (msg) {
+      msg.text = newText
+    }
+    // Update DOM
+    const li = messageList.querySelector(`[data-message-id="${idStr}"]`)
+    if (li) {
+      const textEl = li.querySelector('.message-text')
+      if (textEl) textEl.textContent = newText
+      const senderLabel = msg ? (msg.isOutgoing ? 'You' : (msg.senderName || 'Unknown')) : ''
+      if (msg) {
+        li.setAttribute('aria-label', buildMessageLabel(msg, senderLabel))
+      }
+    }
+    return msg
+  }
+
   function updateTypingVisual() {
     if (typingUsers.size === 0) {
       typingIndicator.style.display = 'none'
@@ -288,6 +311,28 @@ export function MainAppScreen() {
     replyPreview.appendChild(cancel)
   }
 
+  function renderEditPreview() {
+    editPreview.innerHTML = ''
+    if (!editingMessage) {
+      editPreview.style.display = 'none'
+      return
+    }
+    editPreview.style.display = 'flex'
+    const label = document.createElement('span')
+    label.textContent = `Editing message`
+    const cancel = document.createElement('button')
+    cancel.textContent = '×'
+    cancel.setAttribute('aria-label', 'Cancel editing')
+    cancel.addEventListener('click', () => {
+      editingMessage = null
+      renderEditPreview()
+      messageInput.value = ''
+      messageInput.focus()
+    })
+    editPreview.appendChild(label)
+    editPreview.appendChild(cancel)
+  }
+
   function renderAttachments() {
     attachmentList.innerHTML = ''
     if (attachedFiles.length === 0) {
@@ -371,6 +416,8 @@ export function MainAppScreen() {
         const msg = messages.find(m => String(m.id) === li.dataset.messageId)
         if (msg && !msg.serviceText) {
           e.preventDefault()
+          editingMessage = null
+          renderEditPreview()
           replyingTo = {
             id: msg.id,
             senderName: msg.isOutgoing ? 'You' : (msg.senderName || 'Unknown'),
@@ -379,6 +426,20 @@ export function MainAppScreen() {
           renderReplyPreview()
           messageInput.focus()
           announce(`Replying to ${replyingTo.senderName}`)
+        }
+        return
+      }
+      if (e.key === 'e' || e.key === 'E') {
+        const msg = messages.find(m => String(m.id) === li.dataset.messageId)
+        if (msg && msg.isOutgoing && !msg.serviceText && !msg.hasDocument && !msg.isVoice) {
+          e.preventDefault()
+          replyingTo = null
+          renderReplyPreview()
+          editingMessage = { id: msg.id, text: msg.text }
+          renderEditPreview()
+          messageInput.value = msg.text
+          messageInput.focus()
+          announce('Editing message')
         }
         return
       }
@@ -721,6 +782,32 @@ export function MainAppScreen() {
   async function sendMessage() {
     const text = messageInput.value.trim()
     if ((!text && attachedFiles.length === 0) || !currentDialogId) return
+
+    // Handle editing an existing message
+    if (editingMessage) {
+      try {
+        announce('Editing message...')
+        const edited = await window.electronAPI.tg.editMessage(currentDialogId, editingMessage.id, text)
+        editingMessage = null
+        renderEditPreview()
+        messageInput.value = ''
+        // Update the message in the list and DOM
+        const msg = applyMessageEdit(edited.id, edited.text)
+        // Update conversation last message
+        const convItem = conversationList.querySelector(`[data-id="${currentDialogId}"]`)
+        if (convItem) {
+          const last = convItem.querySelector('.conversation-last')
+          if (last) last.textContent = edited.text
+        }
+        const dialog = dialogs.find(d => d.id === currentDialogId)
+        if (dialog) dialog.lastMessage = edited.text
+      } catch (err) {
+        console.error('Failed to edit message:', err)
+        announce('Failed to edit message.')
+      }
+      return
+    }
+
     const replyToMsgId = replyingTo ? replyingTo.id : null
 
     if (attachedFiles.length > 0) {
@@ -854,7 +941,9 @@ export function MainAppScreen() {
     recordedChunks = []
     attachedFiles = []
     replyingTo = null
+    editingMessage = null
     renderReplyPreview()
+    renderEditPreview()
     renderAttachments()
     messageInput.focus()
   }
@@ -894,6 +983,23 @@ export function MainAppScreen() {
   unsubscribeUpdate = window.electronAPI.tg.onUpdate((update) => {
     if (update.type === 'typing') {
       handleTypingUpdate(update)
+      return
+    }
+    if (update.type === 'editMessage') {
+      if (currentDialogId && update.chatId === currentDialogId) {
+        applyMessageEdit(update.id, update.text)
+        // Update conversation last message
+        const convItem = conversationList.querySelector(`[data-id="${currentDialogId}"]`)
+        if (convItem) {
+          const last = convItem.querySelector('.conversation-last')
+          if (last) last.textContent = update.isVoice ? 'Voice message' : (update.hasDocument ? (update.text || update.fileName) : update.text)
+          const dialog = dialogs.find(d => d.id === currentDialogId)
+          if (dialog) {
+            dialog.lastMessage = update.isVoice ? 'Voice message' : (update.hasDocument ? (update.text || update.fileName) : update.text)
+          }
+        }
+        announce('Message edited')
+      }
       return
     }
     if (update.type === 'newMessage') {
@@ -943,6 +1049,12 @@ export function MainAppScreen() {
       } else if (previewUI.style.display !== 'none') {
         e.preventDefault()
         cancelRecording()
+      } else if (editingMessage) {
+        e.preventDefault()
+        editingMessage = null
+        renderEditPreview()
+        messageInput.value = ''
+        messageInput.focus()
       } else if (replyingTo) {
         e.preventDefault()
         replyingTo = null
@@ -974,5 +1086,6 @@ export function cleanupMainApp() {
   messages = []
   attachedFiles = []
   replyingTo = null
+  editingMessage = null
   clearAllTyping()
 }

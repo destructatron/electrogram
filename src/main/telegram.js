@@ -270,6 +270,26 @@ class TelegramManager {
           userName,
           action: update.action.className
         })
+      } else if (update.className === 'UpdateEditMessage' || update.className === 'UpdateEditChannelMessage') {
+        const msg = update.message
+        if (msg) {
+          this.messagesCache.set(msg.id, msg)
+          const voiceInfo = this.getVoiceInfo(msg)
+          const fileInfo = this.getFileInfo(msg)
+          // Use msg.message (raw MTProto string) instead of msg.text (GramJS getter
+          // that needs _client to be set, which is not initialized on raw updates)
+          this.pushUpdate({
+            type: 'editMessage',
+            id: msg.id,
+            text: msg.message || '',
+            hasDocument: !!fileInfo,
+            fileName: fileInfo ? fileInfo.fileName : null,
+            documentSize: fileInfo ? Number(fileInfo.documentSize) || 0 : 0,
+            chatId: msg.chatId ? msg.chatId.toString() : null,
+            isVoice: voiceInfo.isVoice,
+            voiceDuration: voiceInfo.voiceDuration
+          })
+        }
       }
     }, new Raw({}))
   }
@@ -418,6 +438,19 @@ class TelegramManager {
       isOutgoing: true,
       isVoice: voiceInfo.isVoice,
       voiceDuration: voiceInfo.voiceDuration
+    }
+  }
+
+  async editMessage(dialogId, messageId, newText) {
+    if (!this.client) throw new Error('Not connected')
+    const cached = this.dialogsCache.get(dialogId)
+    const entity = cached || dialogId
+    const result = await this.client.editMessage(entity, { message: messageId, text: newText })
+    if (!result) throw new Error('Edit returned no message')
+    this.messagesCache.set(result.id, result)
+    return {
+      id: result.id,
+      text: result.text || ''
     }
   }
 

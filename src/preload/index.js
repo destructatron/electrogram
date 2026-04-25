@@ -16,6 +16,7 @@ try {
       downloadVoiceMessage: (messageId) => ipcRenderer.invoke('tg:downloadVoiceMessage', messageId),
       sendVoiceMessage: (dialogId, audioBuffer, duration) => ipcRenderer.invoke('tg:sendVoiceMessage', dialogId, audioBuffer, duration),
       sendFiles: (dialogId, filePaths, caption, replyToMsgId) => ipcRenderer.invoke('tg:sendFiles', dialogId, filePaths, caption, replyToMsgId),
+      editMessage: (dialogId, messageId, newText) => ipcRenderer.invoke('tg:editMessage', dialogId, messageId, newText),
       downloadFile: (messageId, defaultFileName) => ipcRenderer.invoke('tg:downloadFile', messageId, defaultFileName),
       openFileDialog: () => ipcRenderer.invoke('tg:openFileDialog'),
       disconnect: () => ipcRenderer.invoke('tg:disconnect'),

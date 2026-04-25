@@ -406,7 +406,8 @@ button, input, textarea, [role="listitem"], [role="option"] {
   background: var(--surface-hover);
 }
 
-.reply-preview {
+.reply-preview,
+.edit-preview {
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -416,14 +417,16 @@ button, input, textarea, [role="listitem"], [role="option"] {
   color: var(--text-muted);
 }
 
-.reply-preview span {
+.reply-preview span,
+.edit-preview span {
   flex: 1;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.reply-preview button {
+.reply-preview button,
+.edit-preview button {
   background: none;
   border: none;
   color: var(--text);

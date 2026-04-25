@@ -52,6 +52,10 @@ export function registerIpc() {
     return telegram.sendFiles(dialogId, filePaths, caption, replyToMsgId)
   })
 
+  ipcMain.handle('tg:editMessage', async (_event, dialogId, messageId, newText) => {
+    return telegram.editMessage(dialogId, messageId, newText)
+  })
+
   ipcMain.handle('tg:downloadFile', async (_event, messageId, defaultFileName) => {
     return telegram.downloadFile(messageId, defaultFileName)
   })
