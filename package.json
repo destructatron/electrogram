@@ -1,0 +1,25 @@
+{
+  "name": "electrogram",
+  "version": "1.0.0",
+  "description": "Accessible Electron Telegram client",
+  "main": "./out/main/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "electron-vite preview",
+    "dev": "electron-vite dev",
+    "dev:safe": "electron-vite dev -- --disable-gpu --no-sandbox",
+    "build": "electron-vite build",
+    "postinstall": ""
+  },
+  "dependencies": {
+    "electron": "^35.0.0",
+    "telegram": "^2.26.16"
+  },
+  "devDependencies": {
+    "electron-vite": "^5.0.0",
+    "vite": "^6.0.0"
+  },
+  "keywords": ["telegram", "electron", "accessible", "a11y"],
+  "author": "",
+  "license": "MIT"
+}
