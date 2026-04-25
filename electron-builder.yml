@@ -32,6 +32,8 @@ mac:
   category: public.app-category.social-networking
   hardenedRuntime: true
   gatekeeperAssess: false
+  extendInfo:
+    NSUserNotificationAlertStyle: alert
 linux:
   target:
     - target: AppImage

@@ -2,6 +2,7 @@ import { app, BrowserWindow } from 'electron'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { registerIpc } from './ipc.js'
+import { logNotificationSettings } from './notifications.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -34,6 +35,7 @@ const createWindow = () => {
 
 app.whenReady().then(() => {
   registerIpc()
+  logNotificationSettings()
   createWindow()
 
   app.on('activate', () => {

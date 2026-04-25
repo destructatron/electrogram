@@ -59,6 +59,16 @@ git tag v1.0.0
 git push origin v1.0.0
 ```
 
+### macOS Notifications
+
+macOS requires apps to be **code-signed** for desktop notifications to work reliably. Unsigned builds may not show notification banners or appear in **System Preferences → Notifications**.
+
+If you are testing an unsigned build:
+- Notifications may be silently dropped by macOS.
+- The first notification from a signed build will prompt for permission automatically.
+
+To enable notifications on your own signed build, set the `CSC_LINK` and `CSC_KEY_PASSWORD` environment variables before packaging.
+
 ### Code Signing (optional)
 
 - **macOS**: Set `CSC_LINK` (base64-encoded `.p12`) and `CSC_KEY_PASSWORD` environment variables.
