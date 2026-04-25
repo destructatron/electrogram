@@ -12,6 +12,7 @@ An accessible, keyboard-navigable Telegram client built with Electron and GramJS
 - **File sharing** – Attach and send multiple files with optional captions; download received files via Enter
 - **Voice messages** – Record and send voice notes; play incoming voice messages inline
 - **Reply threads** – Press `R` on a message to reply; cancel with Escape or the × button
+- **Inline buttons** – Bot keyboards render inside messages; keyboard-navigable and only tabbable when the message is focused
 - **Service messages** – Join/leave/pin events rendered with resolved user names
 - **Mark as read** – Automatically marks conversations read when opened
 - **Notification sounds** – Sent/received sounds for active chats; background-chat alerts for non-muted conversations
@@ -43,7 +44,7 @@ npm run build
 | `Ctrl + 1` | Focus conversation list |
 | `Ctrl + 2` | Focus message list |
 | `Ctrl + 3` | Focus message composer |
-| `Enter` | Send message / activate item / play voice / download file |
+| `Enter` | Send message / activate item / play voice / download file / press inline button |
 | `R` | Reply to focused message |
 | `E` | Edit your outgoing text message |
 | `C` | Copy focused message to clipboard |
