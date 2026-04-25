@@ -189,6 +189,14 @@ export function MainAppScreen() {
     return msg.serviceText || msg.text
   }
 
+  function getMessageCopyText(msg) {
+    if (msg.text) return msg.text
+    if (msg.serviceText) return msg.serviceText
+    if (msg.isVoice) return 'Voice message'
+    if (msg.hasDocument) return msg.fileName
+    return ''
+  }
+
   // Typing indicators
   const typingUsers = new Map() // userId -> { userName, timer }
   const TYPING_TIMEOUT = 6000
@@ -440,6 +448,23 @@ export function MainAppScreen() {
           messageInput.value = msg.text
           messageInput.focus()
           announce('Editing message')
+        }
+        return
+      }
+      if (e.key === 'c' || e.key === 'C') {
+        const msg = messages.find(m => String(m.id) === li.dataset.messageId)
+        if (msg) {
+          e.preventDefault()
+          const text = getMessageCopyText(msg)
+          if (text) {
+            navigator.clipboard.writeText(text).then(() => {
+              announce('Copied to clipboard')
+            }).catch(() => {
+              announce('Failed to copy')
+            })
+          } else {
+            announce('Nothing to copy')
+          }
         }
         return
       }
