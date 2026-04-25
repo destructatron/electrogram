@@ -56,6 +56,10 @@ export function registerIpc() {
     return telegram.editMessage(dialogId, messageId, newText)
   })
 
+  ipcMain.handle('tg:clickInlineButton', async (_event, messageId, row, col) => {
+    return telegram.clickInlineButton(messageId, row, col)
+  })
+
   ipcMain.handle('tg:showNotification', async (_event, title, body, chatId) => {
     if (!Notification.isSupported()) return
     const notification = new Notification({

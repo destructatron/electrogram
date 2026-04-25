@@ -135,6 +135,18 @@ class TelegramManager {
     return null
   }
 
+  getInlineButtons(msg) {
+    const markup = msg.replyMarkup
+    if (!markup || markup.className !== 'ReplyInlineMarkup') return null
+    return markup.rows.map((row, rowIdx) => ({
+      buttons: row.buttons.map((btn, colIdx) => ({
+        text: btn.text,
+        row: rowIdx,
+        col: colIdx
+      }))
+    }))
+  }
+
   async getServiceText(msg) {
     if (!msg || !msg.action) return null
 
@@ -205,6 +217,7 @@ class TelegramManager {
           }
         }
       }
+      const inlineButtons = this.getInlineButtons(msg)
       const update = {
         type: 'newMessage',
         id: msg.id,
@@ -220,7 +233,8 @@ class TelegramManager {
         chatId: msg.chatId ? msg.chatId.toString() : null,
         isOutgoing: msg.out || false,
         isVoice: voiceInfo.isVoice,
-        voiceDuration: voiceInfo.voiceDuration
+        voiceDuration: voiceInfo.voiceDuration,
+        inlineButtons
       }
       this.pushUpdate(update)
     }, new NewMessage({}))
@@ -276,6 +290,7 @@ class TelegramManager {
           this.messagesCache.set(msg.id, msg)
           const voiceInfo = this.getVoiceInfo(msg)
           const fileInfo = this.getFileInfo(msg)
+          const inlineButtons = this.getInlineButtons(msg)
           // Use msg.message (raw MTProto string) instead of msg.text (GramJS getter
           // that needs _client to be set, which is not initialized on raw updates)
           this.pushUpdate({
@@ -287,7 +302,8 @@ class TelegramManager {
             documentSize: fileInfo ? Number(fileInfo.documentSize) || 0 : 0,
             chatId: msg.chatId ? msg.chatId.toString() : null,
             isVoice: voiceInfo.isVoice,
-            voiceDuration: voiceInfo.voiceDuration
+            voiceDuration: voiceInfo.voiceDuration,
+            inlineButtons
           })
         }
       }
@@ -400,6 +416,7 @@ class TelegramManager {
           }
         }
       }
+      const inlineButtons = this.getInlineButtons(m)
       return {
         id: m.id,
         text: m.text || '',
@@ -413,7 +430,8 @@ class TelegramManager {
         senderName: this.getDisplayName(m.sender),
         isOutgoing: m.out || false,
         isVoice: voiceInfo.isVoice,
-        voiceDuration: voiceInfo.voiceDuration
+        voiceDuration: voiceInfo.voiceDuration,
+        inlineButtons
       }
     }))
     return result.reverse()
@@ -437,7 +455,8 @@ class TelegramManager {
       senderName: this.getDisplayName(me),
       isOutgoing: true,
       isVoice: voiceInfo.isVoice,
-      voiceDuration: voiceInfo.voiceDuration
+      voiceDuration: voiceInfo.voiceDuration,
+      inlineButtons: null
     }
   }
 
@@ -452,6 +471,25 @@ class TelegramManager {
       id: result.id,
       text: result.text || ''
     }
+  }
+
+  async clickInlineButton(messageId, row, col) {
+    if (!this.client) throw new Error('Not connected')
+    const msg = this.messagesCache.get(Number(messageId))
+    if (!msg) throw new Error('Message not found')
+    const result = await msg.click({ i: row, j: col })
+    if (typeof result === 'string') {
+      return { type: 'url', url: result }
+    }
+    if (result && result.className === 'messages.BotCallbackAnswer') {
+      return {
+        type: 'callback',
+        message: result.message || '',
+        url: result.url || '',
+        alert: result.alert || false
+      }
+    }
+    return { type: 'done' }
   }
 
   async markAsRead(dialogId, maxId = 0) {
@@ -494,7 +532,8 @@ class TelegramManager {
       senderName: this.getDisplayName(me),
       isOutgoing: true,
       isVoice: voiceInfo.isVoice,
-      voiceDuration: voiceInfo.voiceDuration
+      voiceDuration: voiceInfo.voiceDuration,
+      inlineButtons: null
     }
   }
 
@@ -527,7 +566,8 @@ class TelegramManager {
           senderName: this.getDisplayName(msg.sender),
           isOutgoing: msg.out || false,
           isVoice: voiceInfo.isVoice,
-          voiceDuration: voiceInfo.voiceDuration
+          voiceDuration: voiceInfo.voiceDuration,
+          inlineButtons: null
         })
       }
     }

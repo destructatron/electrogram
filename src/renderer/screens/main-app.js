@@ -66,6 +66,25 @@ export function MainAppScreen() {
 
   const conversationList = container.querySelector('#conversation-list')
   const messageList = container.querySelector('#message-list')
+
+  // Only the focused message has tabbable inline buttons
+  messageList.addEventListener('focusin', (e) => {
+    const li = e.target.closest('.message-item')
+    if (li) {
+      messageList.querySelectorAll('.message-button-row button').forEach(b => b.tabIndex = -1)
+      li.querySelectorAll('.message-button-row button').forEach(b => b.tabIndex = 0)
+    }
+  })
+  messageList.addEventListener('focusout', (e) => {
+    const li = e.target.closest('.message-item')
+    if (li) {
+      const related = e.relatedTarget
+      if (!related || !li.contains(related)) {
+        li.querySelectorAll('.message-button-row button').forEach(b => b.tabIndex = -1)
+      }
+    }
+  })
+
   const chatTitle = container.querySelector('#chat-title')
   const emptyState = container.querySelector('#empty-state')
   const composer = container.querySelector('#composer')
@@ -206,18 +225,27 @@ export function MainAppScreen() {
   const typingUsers = new Map() // userId -> { userName, timer }
   const TYPING_TIMEOUT = 6000
 
-  function applyMessageEdit(messageId, newText) {
+  function applyMessageEdit(messageId, newText, newInlineButtons) {
     const idStr = String(messageId)
     // Update in-memory message
     const msg = messages.find(m => String(m.id) === idStr)
     if (msg) {
       msg.text = newText
+      if (newInlineButtons !== undefined) {
+        msg.inlineButtons = newInlineButtons
+      }
     }
     // Update DOM
     const li = messageList.querySelector(`[data-message-id="${idStr}"]`)
     if (li) {
       const textEl = li.querySelector('.message-text')
       if (textEl) textEl.textContent = newText
+      // Rebuild inline buttons if they changed
+      const oldButtons = li.querySelector('.message-buttons')
+      if (oldButtons) oldButtons.remove()
+      if (msg && msg.inlineButtons && msg.inlineButtons.length > 0) {
+        renderInlineButtons(msg, li)
+      }
       const senderLabel = msg ? (msg.isOutgoing ? 'You' : (msg.senderName || 'Unknown')) : ''
       if (msg) {
         li.setAttribute('aria-label', buildMessageLabel(msg, senderLabel))
@@ -649,10 +677,96 @@ export function MainAppScreen() {
     } else {
       content = msg.text
     }
+    if (msg.inlineButtons && msg.inlineButtons.length > 0) {
+      const btnCount = msg.inlineButtons.reduce((sum, r) => sum + r.buttons.length, 0)
+      content += `. ${btnCount} button${btnCount === 1 ? '' : 's'}`
+    }
     if (msg.replyTo) {
       return `${senderLabel} replying to ${msg.replyTo.senderName}: ${content}. Original message: ${msg.replyTo.text}`
     }
     return `${senderLabel}: ${content}`
+  }
+
+  async function handleButtonClick(messageId, row, col) {
+    try {
+      announce('Processing...')
+      const result = await window.electronAPI.tg.clickInlineButton(messageId, row, col)
+      if (result.type === 'url') {
+        window.open(result.url, '_blank')
+        announce('Opening link')
+      } else if (result.type === 'callback') {
+        if (result.message) {
+          announce(result.message)
+        } else {
+          announce('Button pressed')
+        }
+      } else {
+        announce('Button pressed')
+      }
+    } catch (err) {
+      console.error('Button click failed:', err)
+      announce('Button failed')
+    }
+  }
+
+  function attachButtonKeyHandler(button, li) {
+    button.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault()
+        button.click()
+        return
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        const prev = li.previousElementSibling
+        if (prev && prev.classList.contains('message-item')) {
+          li.tabIndex = -1
+          prev.tabIndex = 0
+          prev.focus()
+          prev.scrollIntoView({ block: 'nearest' })
+        }
+        return
+      }
+      if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        const next = li.nextElementSibling
+        if (next && next.classList.contains('message-item')) {
+          li.tabIndex = -1
+          next.tabIndex = 0
+          next.focus()
+          next.scrollIntoView({ block: 'nearest' })
+        }
+        return
+      }
+    })
+  }
+
+  function renderInlineButtons(msg, li) {
+    if (!msg.inlineButtons || msg.inlineButtons.length === 0) return
+    const container = document.createElement('div')
+    container.className = 'message-buttons'
+    msg.inlineButtons.forEach((row) => {
+      const rowEl = document.createElement('div')
+      rowEl.className = 'message-button-row'
+      row.buttons.forEach((btn) => {
+        const button = document.createElement('button')
+        button.type = 'button'
+        button.tabIndex = -1
+        button.textContent = btn.text
+        button.addEventListener('click', () => {
+          handleButtonClick(msg.id, btn.row, btn.col)
+        })
+        attachButtonKeyHandler(button, li)
+        rowEl.appendChild(button)
+      })
+      container.appendChild(rowEl)
+    })
+    const timeEl = li.querySelector('.message-time')
+    if (timeEl) {
+      li.insertBefore(container, timeEl)
+    } else {
+      li.appendChild(container)
+    }
   }
 
   function renderMessages() {
@@ -710,6 +824,8 @@ export function MainAppScreen() {
         li.setAttribute('aria-label', buildMessageLabel(msg, senderLabel))
       }
 
+      renderInlineButtons(msg, li)
+
       const time = document.createElement('div')
       time.className = 'message-time'
       time.textContent = new Date(msg.date * 1000).toLocaleTimeString()
@@ -724,6 +840,12 @@ export function MainAppScreen() {
   }
 
   function appendMessage(msg) {
+    const existingIndex = messages.findIndex(m => String(m.id) === String(msg.id))
+    if (existingIndex !== -1) {
+      // Replace existing message data (e.g., more complete update) but don't duplicate DOM
+      messages[existingIndex] = msg
+      return
+    }
     messages.push(msg)
     const li = document.createElement('li')
     li.className = `message-item ${msg.isOutgoing ? 'outgoing' : 'incoming'}`
@@ -776,6 +898,8 @@ export function MainAppScreen() {
       li.appendChild(text)
       li.setAttribute('aria-label', buildMessageLabel(msg, senderLabel))
     }
+
+    renderInlineButtons(msg, li)
 
     const time = document.createElement('div')
     time.className = 'message-time'
@@ -1029,7 +1153,7 @@ export function MainAppScreen() {
     }
     if (update.type === 'editMessage') {
       if (currentDialogId && update.chatId === currentDialogId) {
-        applyMessageEdit(update.id, update.text)
+        applyMessageEdit(update.id, update.text, update.inlineButtons)
         // Update conversation last message
         const convItem = conversationList.querySelector(`[data-id="${currentDialogId}"]`)
         if (convItem) {
