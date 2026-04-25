@@ -4,6 +4,7 @@ let currentDialogId = null
 let dialogs = []
 let messages = []
 let unsubscribeUpdate = null
+let unsubscribeNotification = null
 let currentAudio = null
 let currentMessageId = null
 let attachedFiles = []
@@ -14,6 +15,10 @@ function ensureUnsubscribed() {
   if (unsubscribeUpdate) {
     unsubscribeUpdate()
     unsubscribeUpdate = null
+  }
+  if (unsubscribeNotification) {
+    unsubscribeNotification()
+    unsubscribeNotification = null
   }
 }
 
@@ -1004,6 +1009,18 @@ export function MainAppScreen() {
 
   backButton.addEventListener('click', closeDialog)
 
+  // Handle notification clicks
+  unsubscribeNotification = window.electronAPI.tg.onNotificationClicked((chatId) => {
+    const dialog = dialogs.find(d => d.id === chatId)
+    if (dialog) {
+      // On mobile, ensure chat pane is visible
+      if (window.innerWidth <= 640) {
+        chatPane.classList.remove('hidden')
+      }
+      openDialog(dialog)
+    }
+  })
+
   // Listen for real-time updates
   unsubscribeUpdate = window.electronAPI.tg.onUpdate((update) => {
     if (update.type === 'typing') {
@@ -1037,9 +1054,12 @@ export function MainAppScreen() {
       } else {
         // Update unread in conversation list
         const dialog = dialogs.find(d => d.id === update.chatId)
-        // Play notification sound for non-focused chat (skip muted)
+        // Play notification sound and show system notification for non-focused chat (skip muted)
         if (!(dialog && dialog.muted)) {
           playReceivedSound()
+          const title = dialog ? dialog.title : 'New message'
+          const body = update.isVoice ? 'Voice message' : (update.hasDocument ? (update.text || update.fileName) : update.text)
+          window.electronAPI.tg.showNotification(title, body, update.chatId)
         }
         if (dialog) {
           dialog.unreadCount = (dialog.unreadCount || 0) + 1
@@ -1100,6 +1120,10 @@ export function MainAppScreen() {
 // Cleanup when leaving main app
 export function cleanupMainApp() {
   ensureUnsubscribed()
+  if (unsubscribeNotification) {
+    unsubscribeNotification()
+    unsubscribeNotification = null
+  }
   if (currentAudio) {
     currentAudio.pause()
     URL.revokeObjectURL(currentAudio.src)

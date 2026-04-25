@@ -1,4 +1,4 @@
-import { ipcMain, BrowserWindow } from 'electron'
+import { ipcMain, BrowserWindow, Notification } from 'electron'
 import { telegram } from './telegram.js'
 
 export function registerIpc() {
@@ -54,6 +54,23 @@ export function registerIpc() {
 
   ipcMain.handle('tg:editMessage', async (_event, dialogId, messageId, newText) => {
     return telegram.editMessage(dialogId, messageId, newText)
+  })
+
+  ipcMain.handle('tg:showNotification', async (_event, title, body, chatId) => {
+    if (!Notification.isSupported()) return
+    const notification = new Notification({
+      title: title || 'Electrogram',
+      body: body || 'New message',
+      silent: true
+    })
+    notification.once('click', () => {
+      if (telegram.window && !telegram.window.isDestroyed()) {
+        if (telegram.window.isMinimized()) telegram.window.restore()
+        telegram.window.focus()
+        telegram.window.webContents.send('tg:notificationClicked', chatId)
+      }
+    })
+    notification.show()
   })
 
   ipcMain.handle('tg:downloadFile', async (_event, messageId, defaultFileName) => {

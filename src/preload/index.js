@@ -20,10 +20,16 @@ try {
       downloadFile: (messageId, defaultFileName) => ipcRenderer.invoke('tg:downloadFile', messageId, defaultFileName),
       openFileDialog: () => ipcRenderer.invoke('tg:openFileDialog'),
       disconnect: () => ipcRenderer.invoke('tg:disconnect'),
+      showNotification: (title, body, chatId) => ipcRenderer.invoke('tg:showNotification', title, body, chatId),
       onUpdate: (callback) => {
         const wrapped = (_event, data) => callback(data)
         ipcRenderer.on('tg:update', wrapped)
         return () => ipcRenderer.removeListener('tg:update', wrapped)
+      },
+      onNotificationClicked: (callback) => {
+        const wrapped = (_event, data) => callback(data)
+        ipcRenderer.on('tg:notificationClicked', wrapped)
+        return () => ipcRenderer.removeListener('tg:notificationClicked', wrapped)
       }
     }
   })
