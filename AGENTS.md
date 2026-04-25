@@ -163,7 +163,22 @@ There is **no test suite** currently in the project. There are no Jest, Vitest, 
 
 ## Deployment / Packaging
 
-The project currently uses `electron-vite` for building only. There is **no Electron Forge, electron-builder, or FPM configuration** for creating installers. To package the app for distribution you would typically add `electron-builder` or `@electron-forge/cli` and configure it to point `main` at `./out/main/index.js`.
+`electron-builder` is configured in `electron-builder.yml` to produce:
+
+- **Linux**: AppImage, deb, tar.gz (x64 + arm64)
+- **Windows**: NSIS installer, portable (x64 + arm64)
+- **macOS**: DMG, zip (x64 + arm64)
+
+Local packaging:
+```bash
+npm run dist:linux
+npm run dist:win
+npm run dist:mac
+```
+
+GitHub Actions (`.github/workflows/release.yml`) builds all three platforms and uploads artifacts to GitHub Releases when a `v*` tag is pushed.
+
+Unsigned binaries are produced by default. To enable code signing, set the `CSC_*` and `WIN_CSC_*` environment variables before running `electron-builder`.
 
 ---
 

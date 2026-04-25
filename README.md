@@ -37,6 +37,34 @@ npm run dev:safe
 npm run build
 ```
 
+## Packaging
+
+Create installers and portable binaries for the current platform:
+
+```bash
+npm run dist          # Current platform
+npm run dist:linux    # Linux (AppImage, deb, tar.gz)
+npm run dist:win      # Windows (NSIS installer, portable)
+npm run dist:mac      # macOS (DMG, zip)
+```
+
+Outputs are written to the `dist/` directory.
+
+### Automated Releases
+
+Push a tag like `v1.0.0` and GitHub Actions will build and upload binaries for Linux, Windows, and macOS directly to a GitHub Release:
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+### Code Signing (optional)
+
+- **macOS**: Set `CSC_LINK` (base64-encoded `.p12`) and `CSC_KEY_PASSWORD` environment variables.
+- **Windows**: Set `WIN_CSC_LINK` and `WIN_CSC_KEY_PASSWORD` environment variables.
+- **Linux**: AppImage and deb packages do not require signing.
+
 ## Keyboard Shortcuts
 
 | Shortcut | Action |
