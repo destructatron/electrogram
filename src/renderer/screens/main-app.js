@@ -36,6 +36,7 @@ export function MainAppScreen() {
       </div>
       <div class="empty-state" id="empty-state">Select a conversation to start messaging</div>
       <ul class="message-list" id="message-list" role="list" tabindex="-1" aria-label="Messages" style="display:none;"></ul>
+      <div class="typing-indicator" id="typing-indicator" style="display:none;"></div>
       <div class="composer" id="composer" style="display:none;">
         <div id="reply-preview" class="reply-preview" style="display:none;"></div>
         <div id="attachment-list" class="attachment-list" style="display:none;"></div>
@@ -74,6 +75,7 @@ export function MainAppScreen() {
   const previewUI = container.querySelector('#preview-ui')
   const sendVoiceButton = container.querySelector('#send-voice-button')
   const cancelVoiceButton = container.querySelector('#cancel-voice-button')
+  const typingIndicator = container.querySelector('#typing-indicator')
 
   // Notification sounds
   const sentSound = new Audio(new URL('../../sounds/telegram_sent.mp3', import.meta.url).href)
@@ -182,6 +184,74 @@ export function MainAppScreen() {
     if (msg.isVoice) return `Voice message (${formatDuration(msg.voiceDuration)})`
     if (msg.hasDocument) return `${msg.fileName} (${formatFileSize(msg.documentSize)})`
     return msg.serviceText || msg.text
+  }
+
+  // Typing indicators
+  const typingUsers = new Map() // userId -> { userName, timer }
+  const TYPING_TIMEOUT = 6000
+
+  function updateTypingVisual() {
+    if (typingUsers.size === 0) {
+      typingIndicator.style.display = 'none'
+      typingIndicator.textContent = ''
+      return
+    }
+    typingIndicator.style.display = 'block'
+    const names = Array.from(typingUsers.values()).map(u => u.userName)
+    if (names.length === 1) {
+      typingIndicator.textContent = `${names[0]} is typing...`
+    } else if (names.length === 2) {
+      typingIndicator.textContent = `${names[0]} and ${names[1]} are typing...`
+    } else {
+      typingIndicator.textContent = `${names.length} people are typing...`
+    }
+  }
+
+  function clearTypingUser(userId) {
+    const user = typingUsers.get(userId)
+    if (user) {
+      clearTimeout(user.timer)
+      typingUsers.delete(userId)
+      updateTypingVisual()
+    }
+  }
+
+  function clearAllTyping() {
+    for (const user of typingUsers.values()) {
+      clearTimeout(user.timer)
+    }
+    typingUsers.clear()
+    updateTypingVisual()
+  }
+
+  function announceTyping(names) {
+    if (names.length === 1) {
+      announce(`${names[0]} is typing`)
+    } else if (names.length === 2) {
+      announce(`${names[0]} and ${names[1]} are typing`)
+    } else {
+      announce(`${names.length} people are typing`)
+    }
+  }
+
+  function handleTypingUpdate(update) {
+    if (update.chatId !== currentDialogId) return
+    const existing = typingUsers.has(update.userId)
+    // Reset or set timer
+    if (existing) {
+      const user = typingUsers.get(update.userId)
+      clearTimeout(user.timer)
+      user.timer = setTimeout(() => clearTypingUser(update.userId), TYPING_TIMEOUT)
+      return
+    }
+    // New typer
+    typingUsers.set(update.userId, {
+      userName: update.userName,
+      timer: setTimeout(() => clearTypingUser(update.userId), TYPING_TIMEOUT)
+    })
+    updateTypingVisual()
+    const names = Array.from(typingUsers.values()).map(u => u.userName)
+    announceTyping(names)
   }
 
   async function attachFiles() {
@@ -403,6 +473,7 @@ export function MainAppScreen() {
     emptyState.style.display = 'none'
     messageList.style.display = ''
     composer.style.display = ''
+    clearAllTyping()
     messages = []
     messageList.innerHTML = ''
 
@@ -821,8 +892,16 @@ export function MainAppScreen() {
 
   // Listen for real-time updates
   unsubscribeUpdate = window.electronAPI.tg.onUpdate((update) => {
+    if (update.type === 'typing') {
+      handleTypingUpdate(update)
+      return
+    }
     if (update.type === 'newMessage') {
       if (currentDialogId && update.chatId === currentDialogId) {
+        // Clear typing for this user when their message arrives
+        if (update.senderId && typingUsers.has(update.senderId)) {
+          clearTypingUser(update.senderId)
+        }
         appendMessage(update)
       } else {
         // Update unread in conversation list
@@ -895,4 +974,5 @@ export function cleanupMainApp() {
   messages = []
   attachedFiles = []
   replyingTo = null
+  clearAllTyping()
 }

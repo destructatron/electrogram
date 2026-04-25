@@ -351,6 +351,14 @@ button, input, textarea, [role="listitem"], [role="option"] {
   text-align: right;
 }
 
+.typing-indicator {
+  padding: 0.25rem 1rem;
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+}
+
 .composer {
   display: flex;
   flex-wrap: wrap;

@@ -1,6 +1,6 @@
 import { TelegramClient, Api } from 'telegram'
 import { StringSession } from 'telegram/sessions/index.js'
-import { NewMessage } from 'telegram/events/index.js'
+import { NewMessage, Raw } from 'telegram/events/index.js'
 import { CustomFile } from 'telegram/client/uploads.js'
 import { app, dialog } from 'electron'
 import path from 'path'
@@ -224,6 +224,54 @@ class TelegramManager {
       }
       this.pushUpdate(update)
     }, new NewMessage({}))
+
+    this.client.addEventHandler(async (event) => {
+      const update = event
+      if (update.className === 'UpdateUserTyping') {
+        try {
+          const user = await this.client.getEntity(update.userId)
+          this.pushUpdate({
+            type: 'typing',
+            chatId: update.userId.toString(),
+            userId: update.userId.toString(),
+            userName: this.getDisplayName(user),
+            action: update.action.className
+          })
+        } catch {
+          this.pushUpdate({
+            type: 'typing',
+            chatId: update.userId.toString(),
+            userId: update.userId.toString(),
+            userName: 'Someone',
+            action: update.action.className
+          })
+        }
+      } else if (update.className === 'UpdateChatUserTyping' || update.className === 'UpdateChannelUserTyping') {
+        const chatId = update.chatId.toString()
+        let userId = null
+        let userName = 'Someone'
+        try {
+          if (update.fromId && update.fromId.className === 'PeerUser') {
+            userId = update.fromId.userId.toString()
+            const user = await this.client.getEntity(update.fromId.userId)
+            userName = this.getDisplayName(user)
+          } else if (update.fromId) {
+            userId = update.fromId.toString()
+            const entity = await this.client.getEntity(update.fromId)
+            userName = this.getDisplayName(entity)
+          }
+        } catch {
+          // fallback to 'Someone'
+        }
+        this.pushUpdate({
+          type: 'typing',
+          chatId,
+          userId,
+          userName,
+          action: update.action.className
+        })
+      }
+    }, new Raw({}))
   }
 
   pushUpdate(update) {
