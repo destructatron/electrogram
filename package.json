@@ -1,6 +1,6 @@
 {
   "name": "electrogram",
-  "version": "1.0.0",
+  "version": "0.1.2",
   "description": "Accessible Electron Telegram client",
   "main": "./out/main/index.js",
   "type": "module",
