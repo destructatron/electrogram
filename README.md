@@ -45,7 +45,9 @@ npm run build
 | `Ctrl + 3` | Focus message composer |
 | `Enter` | Send message / activate item / play voice / download file |
 | `R` | Reply to focused message |
-| `Escape` | Cancel reply / close chat |
+| `E` | Edit your outgoing text message |
+| `C` | Copy focused message to clipboard |
+| `Escape` | Cancel reply / editing / close chat |
 | `↑ / ↓` | Navigate items in a list |
 | `Home / End` | Jump to first/last item |
 
