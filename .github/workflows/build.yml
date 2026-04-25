@@ -3,8 +3,6 @@ name: Build
 on:
   push:
     branches: [main]
-    tags:
-      - 'v*'
   pull_request:
     branches: [main]
 
@@ -28,9 +26,7 @@ jobs:
         run: npm run build
 
       - name: Package (Linux)
-        run: npm run dist:linux
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run dist:linux -- --publish=never
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -57,9 +53,7 @@ jobs:
         run: npm run build
 
       - name: Package (Windows)
-        run: npm run dist:win
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run dist:win -- --publish=never
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -86,9 +80,7 @@ jobs:
         run: npm run build
 
       - name: Package (macOS)
-        run: npm run dist:mac
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run dist:mac -- --publish=never
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
