@@ -215,10 +215,39 @@ export function MainAppScreen() {
     return parseFloat((num / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
   }
 
+  function normalizeDate(date) {
+    if (!date) return 0
+    if (typeof date === 'number') return date
+    if (date instanceof Date) return Math.floor(date.getTime() / 1000)
+    return Math.floor(new Date(date).getTime() / 1000)
+  }
+
+  function getDayStart(timestamp) {
+    const d = new Date(normalizeDate(timestamp) * 1000)
+    d.setHours(0, 0, 0, 0)
+    return d.getTime()
+  }
+
+  function formatDateSeparator(timestamp) {
+    const now = new Date()
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+    const msgDate = new Date(normalizeDate(timestamp) * 1000)
+    const msgDay = new Date(msgDate.getFullYear(), msgDate.getMonth(), msgDate.getDate()).getTime()
+    const diffDays = Math.round((today - msgDay) / (1000 * 60 * 60 * 24))
+
+    if (diffDays === 0) return 'Today'
+    if (diffDays === 1) return 'Yesterday'
+    return msgDate.toLocaleDateString(undefined, {
+      month: 'long',
+      day: 'numeric',
+      year: msgDate.getFullYear() !== now.getFullYear() ? 'numeric' : undefined
+    })
+  }
+
   function getMessagePreviewText(msg) {
-    if (msg.isVoice) return `Voice message (${formatDuration(msg.voiceDuration)})`
-    if (msg.hasDocument) return `${msg.fileName} (${formatFileSize(msg.documentSize)})`
-    return msg.serviceText || msg.text
+    if (msg.isVoice) return `Voice message (${formatDuration(msg.voiceDuration || 0)})`
+    if (msg.hasDocument) return `${msg.fileName || 'File'} (${formatFileSize(msg.documentSize || 0)})`
+    return msg.serviceText || msg.text || ''
   }
 
   function getMessageCopyText(msg) {
@@ -684,9 +713,10 @@ export function MainAppScreen() {
     if (!msg.replyTo) return
     const reply = document.createElement('div')
     reply.className = 'message-reply'
+    reply.setAttribute('role', 'none')
     const replySender = document.createElement('span')
     replySender.className = 'message-reply-sender'
-    replySender.textContent = `Replying to ${msg.replyTo.senderName}`
+    replySender.textContent = `${msg.isOutgoing ? 'You' : (msg.senderName || 'Unknown')} replying to ${msg.replyTo.senderName}`
     const replyText = document.createElement('span')
     replyText.className = 'message-reply-text'
     replyText.textContent = msg.replyTo.text
@@ -695,26 +725,46 @@ export function MainAppScreen() {
     li.appendChild(reply)
   }
 
+  function formatMessageTimestamp(date) {
+    const ts = normalizeDate(date) * 1000
+    const msgDate = new Date(ts)
+    const now = new Date()
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+    const msgDay = new Date(msgDate.getFullYear(), msgDate.getMonth(), msgDate.getDate()).getTime()
+    const diffDays = Math.round((today - msgDay) / (1000 * 60 * 60 * 24))
+    const timeStr = msgDate.toLocaleTimeString()
+
+    if (diffDays === 0) return timeStr
+    if (diffDays === 1) return `Yesterday at ${timeStr}`
+    const dateStr = msgDate.toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      year: msgDate.getFullYear() !== now.getFullYear() ? 'numeric' : undefined
+    })
+    return `${dateStr} at ${timeStr}`
+  }
+
   function buildMessageLabel(msg, senderLabel) {
     let content
     if (msg.isVoice) {
-      content = `Voice message (${formatDuration(msg.voiceDuration)})`
+      content = `Voice message (${formatDuration(msg.voiceDuration || 0)})`
     } else if (msg.hasDocument) {
-      content = `File ${msg.fileName} (${formatFileSize(msg.documentSize)})`
+      content = `File ${msg.fileName || 'unknown'} (${formatFileSize(msg.documentSize || 0)})`
       if (msg.text) content += `: ${msg.text}`
     } else if (msg.serviceText) {
       content = msg.serviceText
     } else {
-      content = msg.text
+      content = msg.text || ''
     }
     if (msg.inlineButtons && msg.inlineButtons.length > 0) {
       const btnCount = msg.inlineButtons.reduce((sum, r) => sum + r.buttons.length, 0)
       content += `. ${btnCount} button${btnCount === 1 ? '' : 's'}`
     }
+    const timeStr = formatMessageTimestamp(msg.date)
     if (msg.replyTo) {
-      return `${senderLabel} replying to ${msg.replyTo.senderName}: ${content}. Original message: ${msg.replyTo.text}`
+      return `${senderLabel} replying to ${msg.replyTo.senderName || 'Unknown'}: ${content}. Original message: ${msg.replyTo.text || ''}. ${timeStr}`
     }
-    return `${senderLabel}: ${content}`
+    return `${senderLabel}: ${content}. ${timeStr}`
   }
 
   async function handleButtonClick(messageId, row, col) {
@@ -801,13 +851,31 @@ export function MainAppScreen() {
 
   function renderMessages() {
     messageList.innerHTML = ''
+    let lastDayStart = null
     messages.forEach((msg, index) => {
+      const msgDayStart = getDayStart(msg.date)
+      if (lastDayStart === null || msgDayStart !== lastDayStart) {
+        const separator = document.createElement('li')
+        separator.className = 'message-date-separator'
+        separator.setAttribute('role', 'separator')
+        separator.setAttribute('aria-label', formatDateSeparator(msg.date))
+        separator.textContent = formatDateSeparator(msg.date)
+        messageList.appendChild(separator)
+        lastDayStart = msgDayStart
+      }
       const li = document.createElement('li')
       li.className = `message-item ${msg.isOutgoing ? 'outgoing' : 'incoming'}`
       li.setAttribute('role', 'listitem')
       li.tabIndex = index === messages.length - 1 ? 0 : -1
       li.dataset.messageId = msg.id
       const senderLabel = msg.isOutgoing ? 'You' : (msg.senderName || 'Unknown')
+
+      if (msg.replyTo) {
+        const srOnly = document.createElement('span')
+        srOnly.className = 'sr-only'
+        srOnly.textContent = buildMessageLabel(msg, senderLabel)
+        li.appendChild(srOnly)
+      }
 
       if (!msg.isOutgoing && !msg.serviceText) {
         const sender = document.createElement('div')
@@ -858,7 +926,7 @@ export function MainAppScreen() {
 
       const time = document.createElement('div')
       time.className = 'message-time'
-      time.textContent = new Date(msg.date * 1000).toLocaleTimeString()
+      time.textContent = new Date(normalizeDate(msg.date) * 1000).toLocaleTimeString()
       li.appendChild(time)
 
       attachMessageKeyHandler(li)
@@ -883,6 +951,13 @@ export function MainAppScreen() {
     li.tabIndex = -1
     li.dataset.messageId = msg.id
     const senderLabel = msg.isOutgoing ? 'You' : (msg.senderName || 'Unknown')
+
+    if (msg.replyTo) {
+      const srOnly = document.createElement('span')
+      srOnly.className = 'sr-only'
+      srOnly.textContent = buildMessageLabel(msg, senderLabel)
+      li.appendChild(srOnly)
+    }
 
     if (!msg.isOutgoing && !msg.serviceText) {
       const sender = document.createElement('div')
@@ -929,11 +1004,24 @@ export function MainAppScreen() {
       li.setAttribute('aria-label', buildMessageLabel(msg, senderLabel))
     }
 
+    // Insert date separator if this message starts a new day
+    const prevMsg = messages[messages.length - 2]
+    const msgDayStart = getDayStart(msg.date)
+    const prevDayStart = prevMsg ? getDayStart(prevMsg.date) : null
+    if (prevDayStart === null || msgDayStart !== prevDayStart) {
+      const separator = document.createElement('li')
+      separator.className = 'message-date-separator'
+      separator.setAttribute('role', 'separator')
+      separator.setAttribute('aria-label', formatDateSeparator(msg.date))
+      separator.textContent = formatDateSeparator(msg.date)
+      messageList.appendChild(separator)
+    }
+
     renderInlineButtons(msg, li)
 
     const time = document.createElement('div')
     time.className = 'message-time'
-    time.textContent = new Date(msg.date * 1000).toLocaleTimeString()
+    time.textContent = new Date(normalizeDate(msg.date) * 1000).toLocaleTimeString()
     li.appendChild(time)
 
     attachMessageKeyHandler(li)

@@ -108,7 +108,8 @@ class TelegramManager {
   }
 
   getReplyPreview(msg) {
-    if (msg.text) return msg.text
+    const text = msg.message || msg.text || ''
+    if (text) return text
     const voiceInfo = this.getVoiceInfo(msg)
     if (voiceInfo.isVoice) return 'Voice message'
     if (msg.action) return 'Service message'
@@ -428,7 +429,7 @@ class TelegramManager {
       const inlineButtons = this.getInlineButtons(m)
       return {
         id: m.id,
-        text: m.text || '',
+        text: m.message || m.text || '',
         serviceText,
         replyTo,
         hasDocument: !!fileInfo,
@@ -436,7 +437,7 @@ class TelegramManager {
         documentSize: fileInfo ? fileInfo.documentSize : 0,
         date: m.date ? (typeof m.date === 'number' ? m.date : Math.floor(m.date.getTime() / 1000)) : 0,
         senderId: m.senderId ? m.senderId.toString() : null,
-        senderName: this.getDisplayName(m.sender),
+        senderName: m.out ? 'You' : this.getDisplayName(m.sender),
         isOutgoing: m.out || false,
         isVoice: voiceInfo.isVoice,
         voiceDuration: voiceInfo.voiceDuration,

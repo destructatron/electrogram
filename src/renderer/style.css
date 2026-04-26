@@ -351,6 +351,14 @@ button, input, textarea, [role="listitem"], [role="option"] {
   text-align: right;
 }
 
+.message-date-separator {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  margin: 0.75rem 0;
+  list-style: none;
+}
+
 .typing-indicator {
   padding: 0.25rem 1rem;
   font-size: 0.875rem;

@@ -88,4 +88,5 @@ export function registerIpc() {
   ipcMain.handle('tg:disconnect', async () => {
     return telegram.disconnect()
   })
+
 }
