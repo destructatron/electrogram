@@ -172,6 +172,14 @@ export function MainAppScreen() {
       updateFocus,
       getActiveIndex: () => activeIndex,
       setActiveIndex: (idx) => updateFocus(idx),
+      setActiveIndexWithoutFocus: (idx) => {
+        const items = getItems()
+        if (!items.length) return
+        activeIndex = Math.max(0, Math.min(idx, items.length - 1))
+        items.forEach((item, i) => {
+          item.tabIndex = i === activeIndex ? 0 : -1
+        })
+      },
       focusActive: () => {
         const items = getItems()
         if (items.length && activeIndex >= 0) {
@@ -552,6 +560,28 @@ export function MainAppScreen() {
     }
   }
 
+  function reorderDialogs() {
+    const focusedBtn = conversationList.querySelector('.conversation-item:focus')
+    const focusedId = focusedBtn?.dataset.id || null
+
+    dialogs.sort((a, b) => (b.date || 0) - (a.date || 0))
+
+    dialogs.forEach((dialog) => {
+      const btn = conversationList.querySelector(`[data-id="${dialog.id}"]`)
+      if (btn) {
+        conversationList.appendChild(btn.parentElement)
+      }
+    })
+
+    const newFocusIndex = focusedId ? dialogs.findIndex(d => d.id === focusedId) : 0
+    const allItems = Array.from(conversationList.querySelectorAll('.conversation-item'))
+    allItems.forEach((btn, i) => {
+      btn.tabIndex = i === newFocusIndex ? 0 : -1
+    })
+
+    convNav.setActiveIndexWithoutFocus(Math.max(0, newFocusIndex))
+  }
+
   function renderDialogs() {
     conversationList.innerHTML = ''
     dialogs.forEach((dialog, index) => {
@@ -916,16 +946,18 @@ export function MainAppScreen() {
       playSentSound()
     }
 
-    // Update conversation last message
+    // Update conversation last message and reorder
+    const dialog = dialogs.find(d => d.id === currentDialogId)
+    if (dialog) {
+      dialog.lastMessage = msg.isVoice ? 'Voice message' : (msg.hasDocument ? (msg.text || msg.fileName) : msg.text)
+      dialog.date = msg.date
+    }
     const convItem = conversationList.querySelector(`[data-id="${currentDialogId}"]`)
     if (convItem) {
       const last = convItem.querySelector('.conversation-last')
       if (last) last.textContent = msg.isVoice ? 'Voice message' : (msg.hasDocument ? (msg.text || msg.fileName) : msg.text)
-      const dialog = dialogs.find(d => d.id === currentDialogId)
-      if (dialog) {
-        dialog.lastMessage = msg.isVoice ? 'Voice message' : (msg.hasDocument ? (msg.text || msg.fileName) : msg.text)
-      }
     }
+    reorderDialogs()
 
     if (!msg.isOutgoing) {
       window.electronAPI.tg.markAsRead(currentDialogId, msg.id).catch(() => {})
@@ -1188,6 +1220,7 @@ export function MainAppScreen() {
         if (dialog) {
           dialog.unreadCount = (dialog.unreadCount || 0) + 1
           dialog.lastMessage = update.text
+          dialog.date = update.date
         }
         const convItem = conversationList.querySelector(`[data-id="${update.chatId}"]`)
         if (convItem) {
@@ -1205,6 +1238,7 @@ export function MainAppScreen() {
           const last = convItem.querySelector('.conversation-last')
           if (last) last.textContent = update.text
         }
+        reorderDialogs()
       }
     }
   })
