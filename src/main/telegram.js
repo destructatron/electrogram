@@ -403,6 +403,27 @@ class TelegramManager {
     }))
   }
 
+  async getDialog(chatId) {
+    if (!this.client) throw new Error('Not connected')
+    const entity = await this.client.getEntity(chatId)
+    const isUser = entity.className === 'User'
+    const id = chatId.toString()
+    if (id) {
+      this.dialogsCache.set(id, entity)
+    }
+    return {
+      id,
+      title: this.getDisplayName(entity),
+      unreadCount: 0,
+      lastMessage: '',
+      isUser,
+      isChannel: entity.className === 'Channel',
+      isGroup: !isUser && entity.className !== 'Channel',
+      muted: false,
+      date: 0
+    }
+  }
+
   async getMessages(dialogId, limit = 100, offsetId = null) {
     if (!this.client) throw new Error('Not connected')
     const cached = this.dialogsCache.get(dialogId)

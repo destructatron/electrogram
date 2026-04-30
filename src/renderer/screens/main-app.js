@@ -589,6 +589,34 @@ export function MainAppScreen() {
     }
   }
 
+  async function ensureDialogInList(chatId) {
+    if (dialogs.find(d => d.id === chatId)) return
+    try {
+      const dialog = await window.electronAPI.tg.getDialog(chatId)
+      if (dialog && !dialogs.find(d => d.id === chatId)) {
+        dialogs.push(dialog)
+        const li = document.createElement('li')
+        const btn = document.createElement('button')
+        btn.type = 'button'
+        btn.className = 'conversation-item'
+        btn.tabIndex = -1
+        btn.dataset.id = dialog.id
+        const titleSpan = document.createElement('span')
+        titleSpan.className = 'conversation-title'
+        titleSpan.textContent = dialog.title
+        const last = document.createElement('span')
+        last.className = 'conversation-last'
+        last.textContent = dialog.lastMessage || 'No messages'
+        btn.appendChild(titleSpan)
+        btn.appendChild(last)
+        li.appendChild(btn)
+        conversationList.appendChild(li)
+      }
+    } catch (err) {
+      console.error('Failed to fetch new dialog:', err)
+    }
+  }
+
   function reorderDialogs() {
     const focusedBtn = conversationList.querySelector('.conversation-item:focus')
     const focusedId = focusedBtn?.dataset.id || null
@@ -1285,7 +1313,7 @@ export function MainAppScreen() {
   })
 
   // Listen for real-time updates
-  unsubscribeUpdate = window.electronAPI.tg.onUpdate((update) => {
+  unsubscribeUpdate = window.electronAPI.tg.onUpdate(async (update) => {
     if (update.type === 'typing') {
       handleTypingUpdate(update)
       return
@@ -1316,7 +1344,11 @@ export function MainAppScreen() {
         appendMessage(update)
       } else {
         // Update unread in conversation list
-        const dialog = dialogs.find(d => d.id === update.chatId)
+        let dialog = dialogs.find(d => d.id === update.chatId)
+        if (!dialog) {
+          await ensureDialogInList(update.chatId)
+          dialog = dialogs.find(d => d.id === update.chatId)
+        }
         // Play notification sound and show system notification for non-focused chat (skip muted)
         if (!(dialog && dialog.muted)) {
           playReceivedSound()
@@ -1329,7 +1361,7 @@ export function MainAppScreen() {
         }
         if (dialog) {
           dialog.unreadCount = (dialog.unreadCount || 0) + 1
-          dialog.lastMessage = update.text
+          dialog.lastMessage = update.isVoice ? 'Voice message' : (update.hasDocument ? (update.text || update.fileName) : update.text)
           dialog.date = update.date
         }
         const convItem = conversationList.querySelector(`[data-id="${update.chatId}"]`)
@@ -1346,7 +1378,7 @@ export function MainAppScreen() {
             title.appendChild(badge)
           }
           const last = convItem.querySelector('.conversation-last')
-          if (last) last.textContent = update.text
+          if (last) last.textContent = dialog ? dialog.lastMessage : update.text
         }
         reorderDialogs()
       }

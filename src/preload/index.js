@@ -10,6 +10,7 @@ try {
       signIn: (phoneCode) => ipcRenderer.invoke('tg:signIn', phoneCode),
       signInPassword: (password) => ipcRenderer.invoke('tg:signInPassword', password),
       getDialogs: (limit) => ipcRenderer.invoke('tg:getDialogs', limit),
+      getDialog: (chatId) => ipcRenderer.invoke('tg:getDialog', chatId),
       getMessages: (dialogId, limit, offsetId) => ipcRenderer.invoke('tg:getMessages', dialogId, limit, offsetId),
       sendMessage: (dialogId, text, replyToMsgId) => ipcRenderer.invoke('tg:sendMessage', dialogId, text, replyToMsgId),
       markAsRead: (dialogId, maxId) => ipcRenderer.invoke('tg:markAsRead', dialogId, maxId),
