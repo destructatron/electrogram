@@ -581,7 +581,7 @@ export function MainAppScreen() {
 
   async function loadDialogs() {
     try {
-      dialogs = await window.electronAPI.tg.getDialogs(50)
+      dialogs = await window.electronAPI.tg.getDialogs()
       renderDialogs()
       announce(`Loaded ${dialogs.length} conversations.`)
     } catch (err) {
@@ -661,7 +661,7 @@ export function MainAppScreen() {
     }
 
     try {
-      const msgs = await window.electronAPI.tg.getMessages(dialog.id, 50)
+      const msgs = await window.electronAPI.tg.getMessages(dialog.id, 100)
       messages = msgs
       renderMessages()
       if (msgs.length === 0) {
@@ -707,6 +707,24 @@ export function MainAppScreen() {
       chatPane.classList.add('hidden')
     }
     convNav.focusActive()
+  }
+
+  async function loadMoreMessages() {
+    if (!currentDialogId || messages.length === 0) return
+    try {
+      const oldestId = messages[0].id
+      const newMsgs = await window.electronAPI.tg.getMessages(currentDialogId, 100, oldestId)
+      if (newMsgs.length === 0) {
+        announce('No older messages.')
+        return
+      }
+      messages = [...newMsgs, ...messages]
+      renderMessages(newMsgs.length)
+      announce(`Loaded ${newMsgs.length} older messages.`)
+    } catch (err) {
+      console.error('[MainApp] Failed to load more messages:', err)
+      announce('Failed to load older messages.')
+    }
   }
 
   function addReplyPreview(msg, li) {
@@ -849,7 +867,7 @@ export function MainAppScreen() {
     }
   }
 
-  function renderMessages() {
+  function renderMessages(focusIndex = null) {
     messageList.innerHTML = ''
     let lastDayStart = null
     messages.forEach((msg, index) => {
@@ -866,7 +884,7 @@ export function MainAppScreen() {
       const li = document.createElement('li')
       li.className = `message-item ${msg.isOutgoing ? 'outgoing' : 'incoming'}`
       li.setAttribute('role', 'listitem')
-      li.tabIndex = index === messages.length - 1 ? 0 : -1
+      li.tabIndex = index === (focusIndex !== null ? focusIndex : messages.length - 1) ? 0 : -1
       li.dataset.messageId = msg.id
       const senderLabel = msg.isOutgoing ? 'You' : (msg.senderName || 'Unknown')
 
@@ -932,9 +950,10 @@ export function MainAppScreen() {
       attachMessageKeyHandler(li)
       messageList.appendChild(li)
     })
-    msgNav.setActiveIndex(messages.length - 1)
-    // Scroll to bottom
-    messageList.scrollTop = messageList.scrollHeight
+    msgNav.setActiveIndex(focusIndex !== null ? focusIndex : messages.length - 1)
+    if (focusIndex === null) {
+      messageList.scrollTop = messageList.scrollHeight
+    }
   }
 
   function appendMessage(msg) {
@@ -1333,6 +1352,11 @@ export function MainAppScreen() {
 
   // Escape closes the current chat or cancels recording
   document.addEventListener('keydown', (e) => {
+    if (e.key === 'PageUp' && currentDialogId) {
+      e.preventDefault()
+      loadMoreMessages()
+      return
+    }
     if (e.key === 'Escape') {
       if (recordingUI.style.display !== 'none') {
         e.preventDefault()

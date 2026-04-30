@@ -371,7 +371,7 @@ class TelegramManager {
     return { authorized: true, user: result.user }
   }
 
-  async getDialogs(limit = 50) {
+  async getDialogs(limit) {
     if (!this.client) throw new Error('Not connected')
     const dialogs = await this.client.getDialogs({ limit })
     this.dialogsCache.clear()
@@ -403,11 +403,15 @@ class TelegramManager {
     }))
   }
 
-  async getMessages(dialogId, limit = 50) {
+  async getMessages(dialogId, limit = 100, offsetId = null) {
     if (!this.client) throw new Error('Not connected')
     const cached = this.dialogsCache.get(dialogId)
     const entity = cached || dialogId
-    const messages = await this.client.getMessages(entity, { limit })
+    const params = { limit }
+    if (offsetId) {
+      params.offsetId = offsetId
+    }
+    const messages = await this.client.getMessages(entity, params)
     const msgMap = new Map()
     messages.forEach(m => msgMap.set(m.id, m))
     const result = await Promise.all(messages.map(async (m) => {

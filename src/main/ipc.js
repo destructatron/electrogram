@@ -28,8 +28,8 @@ export function registerIpc() {
     return telegram.getDialogs(limit)
   })
 
-  ipcMain.handle('tg:getMessages', async (_event, dialogId, limit) => {
-    return telegram.getMessages(dialogId, limit)
+  ipcMain.handle('tg:getMessages', async (_event, dialogId, limit, offsetId) => {
+    return telegram.getMessages(dialogId, limit, offsetId)
   })
 
   ipcMain.handle('tg:sendMessage', async (_event, dialogId, text, replyToMsgId) => {
