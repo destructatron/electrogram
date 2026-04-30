@@ -1321,7 +1321,10 @@ export function MainAppScreen() {
         if (!(dialog && dialog.muted)) {
           playReceivedSound()
           const title = dialog ? dialog.title : 'New message'
-          const body = update.isVoice ? 'Voice message' : (update.hasDocument ? (update.text || update.fileName) : update.text)
+          let body = update.isVoice ? 'Voice message' : (update.hasDocument ? (update.text || update.fileName) : update.text)
+          if (dialog && !dialog.isUser && update.senderName) {
+            body = `${update.senderName}: ${body}`
+          }
           window.electronAPI.tg.showNotification(title, body, update.chatId)
         }
         if (dialog) {
