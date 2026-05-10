@@ -646,6 +646,103 @@ class TelegramManager {
       this.client = null
     }
   }
+
+  async searchGlobal(query) {
+    if (!this.client) throw new Error('Not connected')
+    const result = await this.client.invoke(new Api.contacts.Search({ q: query, limit: 20 }))
+    const users = []
+    const groups = []
+
+    for (const user of result.users || []) {
+      if (user.className === 'User' && !user.deleted) {
+        const name = [user.firstName, user.lastName].filter(Boolean).join(' ') || user.username || 'Unknown'
+        users.push({
+          id: user.id.toString(),
+          name,
+          username: user.username || '',
+          type: 'user'
+        })
+      }
+    }
+
+    for (const chat of result.chats || []) {
+      if (chat.className === 'Chat') {
+        groups.push({
+          id: `-${chat.id.toString()}`,
+          name: chat.title || 'Unknown',
+          username: chat.username || '',
+          type: 'group',
+          participantsCount: chat.participantsCount || 0,
+          isPublic: !!chat.username
+        })
+      } else if (chat.className === 'Channel') {
+        const isMegagroup = chat.megagroup === true
+        groups.push({
+          id: `-100${chat.id.toString()}`,
+          name: chat.title || 'Unknown',
+          username: chat.username || '',
+          type: isMegagroup ? 'group' : 'channel',
+          participantsCount: chat.participantsCount || 0,
+          isPublic: !!chat.username
+        })
+      }
+    }
+
+    return { users, groups }
+  }
+
+  async joinChat(chatId) {
+    if (!this.client) throw new Error('Not connected')
+    const entity = await this.client.getEntity(chatId)
+    if (entity.className === 'Channel') {
+      await this.client.invoke(new Api.channels.JoinChannel({ channel: entity }))
+    } else if (entity.className === 'Chat') {
+      await this.client.invoke(new Api.messages.JoinChat({ chatId: entity.id }))
+    }
+    return { joined: true }
+  }
+
+  async leaveChat(chatId) {
+    if (!this.client) throw new Error('Not connected')
+    const entity = await this.client.getEntity(chatId)
+    if (entity.className === 'Channel') {
+      await this.client.invoke(new Api.channels.LeaveChannel({ channel: entity }))
+    } else if (entity.className === 'Chat') {
+      await this.client.invoke(new Api.messages.DeleteChatUser({
+        chatId: entity.id,
+        userId: new Api.InputUserSelf()
+      }))
+    }
+    this.dialogsCache.delete(chatId)
+    return { left: true }
+  }
+
+  async deleteChat(chatId) {
+    if (!this.client) throw new Error('Not connected')
+    const entity = await this.client.getEntity(chatId)
+    await this.client.invoke(new Api.messages.DeleteHistory({
+      peer: entity,
+      maxId: 0,
+      justClear: false,
+      revoke: false
+    }))
+    this.dialogsCache.delete(chatId)
+    return { deleted: true }
+  }
+
+  async muteChat(chatId, muted) {
+    if (!this.client) throw new Error('Not connected')
+    const peer = await this.client.getInputEntity(chatId)
+    await this.client.invoke(new Api.account.UpdateNotifySettings({
+      peer: new Api.InputNotifyPeer({ peer }),
+      settings: new Api.InputPeerNotifySettings({
+        muteUntil: muted ? 0x7FFFFFFF : 0,
+        showPreviews: true,
+        silent: muted
+      })
+    }))
+    return { muted }
+  }
 }
 
 export const telegram = new TelegramManager()

@@ -93,4 +93,24 @@ export function registerIpc() {
     return telegram.disconnect()
   })
 
+  ipcMain.handle('tg:searchGlobal', async (_event, query) => {
+    return telegram.searchGlobal(query)
+  })
+
+  ipcMain.handle('tg:joinChat', async (_event, chatId) => {
+    return telegram.joinChat(chatId)
+  })
+
+  ipcMain.handle('tg:leaveChat', async (_event, chatId) => {
+    return telegram.leaveChat(chatId)
+  })
+
+  ipcMain.handle('tg:deleteChat', async (_event, chatId) => {
+    return telegram.deleteChat(chatId)
+  })
+
+  ipcMain.handle('tg:muteChat', async (_event, chatId, muted) => {
+    return telegram.muteChat(chatId, muted)
+  })
+
 }

@@ -22,6 +22,11 @@ try {
       downloadFile: (messageId, defaultFileName) => ipcRenderer.invoke('tg:downloadFile', messageId, defaultFileName),
       openFileDialog: () => ipcRenderer.invoke('tg:openFileDialog'),
       disconnect: () => ipcRenderer.invoke('tg:disconnect'),
+      searchGlobal: (query) => ipcRenderer.invoke('tg:searchGlobal', query),
+      joinChat: (chatId) => ipcRenderer.invoke('tg:joinChat', chatId),
+      leaveChat: (chatId) => ipcRenderer.invoke('tg:leaveChat', chatId),
+      deleteChat: (chatId) => ipcRenderer.invoke('tg:deleteChat', chatId),
+      muteChat: (chatId, muted) => ipcRenderer.invoke('tg:muteChat', chatId, muted),
       showNotification: (title, body, chatId) => ipcRenderer.invoke('tg:showNotification', title, body, chatId),
       onUpdate: (callback) => {
         const wrapped = (_event, data) => callback(data)

@@ -84,8 +84,9 @@ Standard Electron three-process model with **context isolation enabled** and **n
 
 1. **Main Process** (`src/main/`)
    - `index.js`: Creates a `BrowserWindow` (1200×800, min 800×600), loads `index.html`, and wires up IPC.
-   - `telegram.js`: A singleton `TelegramManager` class that owns the GramJS `TelegramClient`, persists session strings and API credentials to Electron's `userData` directory, and listens for `NewMessage` events.
+   - `telegram.js`: A singleton `TelegramManager` class that owns the GramJS `TelegramClient`, persists session strings and API credentials to Electron's `userData` directory, and listens for `NewMessage` events. Also wraps group management APIs (`joinChat`, `leaveChat`, etc.).
    - `ipc.js`: Registers `ipcMain.handle('tg:*', ...)` handlers. Each handler delegates to `telegram.*` methods.
+   - Key handlers: `searchGlobal`, `joinChat`, `leaveChat`, `deleteChat`, `muteChat`.
 
 2. **Preload** (`src/preload/index.js`)
    - Uses `contextBridge.exposeInMainWorld('electronAPI', { tg: { ... } })`.
@@ -126,6 +127,27 @@ Each file in `src/renderer/screens/` exports a factory function (e.g., `LoginApi
 3. Returns the root element.
 
 Some screens also export cleanup functions (e.g., `cleanupMainApp`) that are passed to `setScreen()` in `app.js` so the router can tear down listeners when navigating away.
+
+### Search & New Conversations
+The main app features a **global search** (triggered by the "New chat" button in the conversation pane header) that searches for both **users and groups/channels** via `contacts.Search`. Results are rendered in a modal dialog with keyboard-navigable buttons (`Tab`, arrow keys, `Enter`).
+
+- **Users**: Selecting a user starts a 1-on-1 chat.
+- **Groups (already joined)**: Opens the group normally.
+- **Groups (public, not joined)**: Opens in **preview mode** — messages are visible but the composer is hidden. A banner offers a "Join group" button.
+- **Groups (private, not joined)**: Cannot be previewed; only a "Join" option is available.
+
+### Context Menus
+Both the **conversation list** and **search results** support context menus (right-click or `Shift+F10`). These are implemented as small focusable button lists with arrow-key and Tab navigation, optimized for screen-reader focus mode.
+
+**Conversation list actions:**
+- Mute / Unmute
+- Leave (for groups/channels)
+- Delete conversation
+
+**Search result actions:**
+- Start chat / Open chat / Preview messages
+- Join (for unjoined groups)
+- Leave (for joined groups)
 
 ### Accessibility Patterns
 - **ARIA live region**: `#live-region` (`aria-live="polite"`) is used for all status announcements (`announce()` in `app.js`).

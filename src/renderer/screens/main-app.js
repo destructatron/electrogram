@@ -10,6 +10,9 @@ let currentMessageId = null
 let attachedFiles = []
 let replyingTo = null
 let editingMessage = null
+let isPreviewing = false
+let activeContextMenu = null
+let contextMenuTrigger = null
 
 function ensureUnsubscribed() {
   if (unsubscribeUpdate) {
@@ -32,13 +35,27 @@ export function MainAppScreen() {
 
   container.innerHTML = `
     <section class="conversation-pane" id="conversation-pane" aria-label="Conversations">
-      <header>Conversations</header>
+      <div class="pane-header">
+        <span aria-hidden="true">Conversations</span>
+        <button id="new-conversation-button" type="button" aria-label="Start new conversation">New chat</button>
+      </div>
       <ul class="conversation-list" id="conversation-list" tabindex="-1" aria-label="Conversation list"></ul>
     </section>
+    <div id="search-modal" class="search-modal" role="dialog" aria-modal="true" aria-label="Start new conversation" style="display:none;">
+      <div class="search-modal-content">
+        <input type="text" id="search-input" placeholder="Search for users and groups..." aria-label="Search for users and groups" autocomplete="off">
+        <ul class="search-results" id="search-results" role="listbox" aria-label="Search results"></ul>
+        <button id="search-close" type="button" class="search-close">Cancel</button>
+      </div>
+    </div>
     <section class="chat-pane" id="chat-pane" aria-label="Chat">
       <div class="chat-header" id="chat-header">
         <button class="back-button" id="back-button" aria-label="Back to conversations">Back</button>
         <span id="chat-title">Select a conversation</span>
+      </div>
+      <div class="preview-banner" id="preview-banner" style="display:none;">
+        <span>Previewing this group. Join to send messages.</span>
+        <button id="join-group-button" type="button">Join group</button>
       </div>
       <div class="empty-state" id="empty-state">Select a conversation to start messaging</div>
       <ul class="message-list" id="message-list" role="list" tabindex="-1" aria-label="Messages" style="display:none;"></ul>
@@ -103,6 +120,13 @@ export function MainAppScreen() {
   const sendVoiceButton = container.querySelector('#send-voice-button')
   const cancelVoiceButton = container.querySelector('#cancel-voice-button')
   const typingIndicator = container.querySelector('#typing-indicator')
+  const newConversationButton = container.querySelector('#new-conversation-button')
+  const searchModal = container.querySelector('#search-modal')
+  const searchInput = container.querySelector('#search-input')
+  const searchResults = container.querySelector('#search-results')
+  const searchClose = container.querySelector('#search-close')
+  const previewBanner = container.querySelector('#preview-banner')
+  const joinGroupButton = container.querySelector('#join-group-button')
 
   // Notification sounds
   const sentSound = new Audio(new URL('../../sounds/telegram_sent.mp3', import.meta.url).href)
@@ -604,6 +628,9 @@ export function MainAppScreen() {
         const titleSpan = document.createElement('span')
         titleSpan.className = 'conversation-title'
         titleSpan.textContent = dialog.title
+        if (dialog.muted) {
+          titleSpan.appendChild(createMutedIndicator())
+        }
         const last = document.createElement('span')
         last.className = 'conversation-last'
         last.textContent = dialog.lastMessage || 'No messages'
@@ -611,6 +638,7 @@ export function MainAppScreen() {
         btn.appendChild(last)
         li.appendChild(btn)
         conversationList.appendChild(li)
+        attachConversationContextMenu(btn, dialog)
       }
     } catch (err) {
       console.error('Failed to fetch new dialog:', err)
@@ -639,6 +667,26 @@ export function MainAppScreen() {
     convNav.setActiveIndexWithoutFocus(Math.max(0, newFocusIndex))
   }
 
+  function createMutedIndicator() {
+    const muted = document.createElement('span')
+    muted.className = 'conversation-muted'
+    muted.textContent = 'Muted'
+    return muted
+  }
+
+  function updateMutedIndicator(chatId, isMuted) {
+    const btn = conversationList.querySelector(`[data-id="${chatId}"]`)
+    if (!btn) return
+    const titleSpan = btn.querySelector('.conversation-title')
+    if (!titleSpan) return
+    let indicator = titleSpan.querySelector('.conversation-muted')
+    if (isMuted && !indicator) {
+      titleSpan.appendChild(createMutedIndicator())
+    } else if (!isMuted && indicator) {
+      indicator.remove()
+    }
+  }
+
   function renderDialogs() {
     conversationList.innerHTML = ''
     dialogs.forEach((dialog, index) => {
@@ -661,6 +709,10 @@ export function MainAppScreen() {
         titleSpan.appendChild(unread)
       }
 
+      if (dialog.muted) {
+        titleSpan.appendChild(createMutedIndicator())
+      }
+
       const last = document.createElement('span')
       last.className = 'conversation-last'
       last.textContent = dialog.lastMessage || 'No messages'
@@ -669,19 +721,28 @@ export function MainAppScreen() {
       btn.appendChild(last)
       li.appendChild(btn)
       conversationList.appendChild(li)
+      attachConversationContextMenu(btn, dialog)
     })
     convNav.setActiveIndex(0)
   }
 
-  async function openDialog(dialog) {
+  async function openDialog(dialog, preview = false) {
     currentDialogId = dialog.id
     chatTitle.textContent = dialog.title
     emptyState.style.display = 'none'
     messageList.style.display = ''
-    composer.style.display = ''
     clearAllTyping()
     messages = []
     messageList.innerHTML = ''
+    isPreviewing = preview
+
+    if (preview) {
+      composer.style.display = 'none'
+      previewBanner.style.display = 'flex'
+    } else {
+      composer.style.display = ''
+      previewBanner.style.display = 'none'
+    }
 
     // On mobile, show chat pane
     if (window.innerWidth <= 640) {
@@ -699,8 +760,8 @@ export function MainAppScreen() {
         emptyMsg.style.padding = '1rem'
         messageList.appendChild(emptyMsg)
       }
-      // Mark messages as read and clear local unread state
-      if (msgs.length > 0) {
+      // Mark messages as read and clear local unread state (skip for previews)
+      if (!preview && msgs.length > 0) {
         window.electronAPI.tg.markAsRead(dialog.id, msgs[msgs.length - 1].id).catch(() => {})
       }
       dialog.unreadCount = 0
@@ -709,17 +770,23 @@ export function MainAppScreen() {
         const unread = convItem.querySelector('.conversation-unread')
         if (unread) unread.remove()
       }
-      announce(`Opened ${dialog.title}. ${msgs.length} messages loaded.`)
-      // Focus composer
-      messageInput.focus()
+      if (preview) {
+        announce(`Previewing ${dialog.title}. ${msgs.length} messages loaded.`)
+      } else {
+        announce(`Opened ${dialog.title}. ${msgs.length} messages loaded.`)
+        // Focus composer
+        messageInput.focus()
+      }
     } catch (err) {
       console.error('[MainApp] Failed to load messages:', err)
       const errorMsg = document.createElement('li')
       errorMsg.className = 'error-text'
-      errorMsg.textContent = 'Failed to load messages. Press Escape to go back.'
+      errorMsg.textContent = preview
+        ? 'Cannot preview this group. It may be private or restricted. Press Escape to go back.'
+        : 'Failed to load messages. Press Escape to go back.'
       errorMsg.style.padding = '1rem'
       messageList.appendChild(errorMsg)
-      announce('Failed to load messages.')
+      announce(preview ? 'Cannot preview this group.' : 'Failed to load messages.')
     }
   }
 
@@ -729,12 +796,476 @@ export function MainAppScreen() {
     emptyState.style.display = ''
     messageList.style.display = 'none'
     composer.style.display = 'none'
+    previewBanner.style.display = 'none'
     messages = []
     messageList.innerHTML = ''
+    isPreviewing = false
     if (window.innerWidth <= 640) {
       chatPane.classList.add('hidden')
     }
     convNav.focusActive()
+  }
+
+  // Context menu
+  function closeContextMenu(returnFocus = true) {
+    if (activeContextMenu) {
+      document.removeEventListener('click', activeContextMenu._clickOutsideHandler)
+      activeContextMenu.remove()
+      activeContextMenu = null
+    }
+    if (returnFocus && contextMenuTrigger && contextMenuTrigger.focus) {
+      contextMenuTrigger.focus()
+    }
+    contextMenuTrigger = null
+  }
+
+  function openContextMenu(items, triggerElement, x = null, y = null) {
+    closeContextMenu(false)
+    contextMenuTrigger = triggerElement
+
+    const menu = document.createElement('div')
+    menu.className = 'context-menu'
+    menu.setAttribute('role', 'dialog')
+    menu.setAttribute('aria-modal', 'true')
+    menu.setAttribute('aria-label', 'Actions')
+
+    const list = document.createElement('ul')
+    list.className = 'context-menu-list'
+    list.setAttribute('role', 'listbox')
+    list.setAttribute('aria-label', 'Actions')
+
+    items.forEach((item, index) => {
+      const li = document.createElement('li')
+      const btn = document.createElement('button')
+      btn.type = 'button'
+      btn.className = 'context-menu-item'
+      btn.tabIndex = 0
+      btn.setAttribute('role', 'option')
+      btn.textContent = item.label
+
+      btn.addEventListener('click', () => {
+        closeContextMenu()
+        item.action()
+      })
+
+      btn.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault()
+          closeContextMenu()
+          item.action()
+          return
+        }
+        if (e.key === 'ArrowDown') {
+          e.preventDefault()
+          const next = list.children[index + 1]?.querySelector('button')
+          if (next) next.focus()
+          return
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault()
+          const prev = list.children[index - 1]?.querySelector('button')
+          if (prev) prev.focus()
+          return
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault()
+          closeContextMenu()
+        }
+      })
+
+      li.appendChild(btn)
+      list.appendChild(li)
+    })
+
+    menu.appendChild(list)
+    document.body.appendChild(menu)
+    activeContextMenu = menu
+
+    if (x !== null && y !== null) {
+      menu.style.left = `${Math.min(x, window.innerWidth - menu.offsetWidth - 8)}px`
+      menu.style.top = `${Math.min(y, window.innerHeight - menu.offsetHeight - 8)}px`
+    } else if (triggerElement) {
+      const rect = triggerElement.getBoundingClientRect()
+      menu.style.left = `${Math.min(rect.left, window.innerWidth - menu.offsetWidth - 8)}px`
+      menu.style.top = `${Math.min(rect.bottom + 4, window.innerHeight - menu.offsetHeight - 8)}px`
+    }
+
+    const first = list.querySelector('button')
+    if (first) first.focus()
+
+    function handleClickOutside(e) {
+      if (!menu.contains(e.target)) {
+        closeContextMenu()
+      }
+    }
+    menu._clickOutsideHandler = handleClickOutside
+    setTimeout(() => document.addEventListener('click', handleClickOutside), 0)
+  }
+
+  // Conversation actions
+  async function joinGroup(chatId) {
+    try {
+      announce('Joining group...')
+      await window.electronAPI.tg.joinChat(chatId)
+      announce('Joined group.')
+      // Refresh dialog
+      const dialog = await window.electronAPI.tg.getDialog(chatId)
+      if (dialog && !dialogs.find(d => d.id === chatId)) {
+        dialogs.push(dialog)
+        const li = document.createElement('li')
+        const btn = document.createElement('button')
+        btn.type = 'button'
+        btn.className = 'conversation-item'
+        btn.tabIndex = -1
+        btn.dataset.id = dialog.id
+        const titleSpan = document.createElement('span')
+        titleSpan.className = 'conversation-title'
+        titleSpan.textContent = dialog.title
+        const last = document.createElement('span')
+        last.className = 'conversation-last'
+        last.textContent = dialog.lastMessage || 'No messages'
+        btn.appendChild(titleSpan)
+        btn.appendChild(last)
+        li.appendChild(btn)
+        conversationList.appendChild(li)
+        attachConversationContextMenu(btn, dialog)
+        const allItems = Array.from(conversationList.querySelectorAll('.conversation-item'))
+        allItems.forEach((item, i) => {
+          item.tabIndex = i === allItems.length - 1 ? 0 : -1
+        })
+        convNav.setActiveIndexWithoutFocus(allItems.length - 1)
+      }
+      // If currently previewing this group, switch to full dialog
+      if (isPreviewing && currentDialogId === chatId) {
+        isPreviewing = false
+        previewBanner.style.display = 'none'
+        composer.style.display = ''
+        announce('You can now send messages in this group.')
+      }
+    } catch (err) {
+      console.error('Failed to join group:', err)
+      announce('Failed to join group.')
+    }
+  }
+
+  async function leaveGroup(chatId) {
+    try {
+      announce('Leaving group...')
+      await window.electronAPI.tg.leaveChat(chatId)
+      announce('Left group.')
+      removeDialogFromList(chatId)
+      if (currentDialogId === chatId) {
+        closeDialog()
+      }
+    } catch (err) {
+      console.error('Failed to leave group:', err)
+      announce('Failed to leave group.')
+    }
+  }
+
+  async function deleteConversation(chatId) {
+    try {
+      announce('Deleting conversation...')
+      await window.electronAPI.tg.deleteChat(chatId)
+      announce('Conversation deleted.')
+      removeDialogFromList(chatId)
+      if (currentDialogId === chatId) {
+        closeDialog()
+      }
+    } catch (err) {
+      console.error('Failed to delete conversation:', err)
+      announce('Failed to delete conversation.')
+    }
+  }
+
+  async function toggleMuteConversation(chatId) {
+    const dialog = dialogs.find(d => d.id === chatId)
+    if (!dialog) return
+    const newMuted = !dialog.muted
+    try {
+      announce(newMuted ? 'Muting conversation...' : 'Unmuting conversation...')
+      await window.electronAPI.tg.muteChat(chatId, newMuted)
+      dialog.muted = newMuted
+      updateMutedIndicator(chatId, newMuted)
+      announce(newMuted ? 'Conversation muted.' : 'Conversation unmuted.')
+    } catch (err) {
+      console.error('Failed to update mute settings:', err)
+      announce('Failed to update mute settings.')
+    }
+  }
+
+  function removeDialogFromList(chatId) {
+    const idx = dialogs.findIndex(d => d.id === chatId)
+    if (idx !== -1) dialogs.splice(idx, 1)
+    const btn = conversationList.querySelector(`[data-id="${chatId}"]`)
+    if (btn) {
+      const li = btn.parentElement
+      const nextFocus = li.nextElementSibling?.querySelector('.conversation-item')
+        || li.previousElementSibling?.querySelector('.conversation-item')
+        || conversationList.querySelector('.conversation-item')
+      li.remove()
+      if (nextFocus) {
+        nextFocus.tabIndex = 0
+        nextFocus.focus()
+        convNav.setActiveIndexWithoutFocus(0)
+      }
+    }
+  }
+
+  function attachConversationContextMenu(btn, dialog) {
+    function buildItems() {
+      const items = []
+      items.push({
+        label: dialog.muted ? 'Unmute' : 'Mute',
+        action: () => toggleMuteConversation(dialog.id)
+      })
+      if (!dialog.isUser) {
+        items.push({
+          label: 'Leave',
+          action: () => leaveGroup(dialog.id)
+        })
+      }
+      items.push({
+        label: 'Delete conversation',
+        action: () => deleteConversation(dialog.id)
+      })
+      return items
+    }
+
+    btn.addEventListener('contextmenu', (e) => {
+      e.preventDefault()
+      openContextMenu(buildItems(), btn, e.clientX, e.clientY)
+    })
+
+    btn.addEventListener('keydown', (e) => {
+      if (e.key === 'Shift' && e.key === 'F10') {
+        // This won't work as written; Shift+F10 fires as F10 with shiftKey
+      }
+      if (e.shiftKey && e.key === 'F10') {
+        e.preventDefault()
+        openContextMenu(buildItems(), btn)
+      }
+    })
+  }
+
+  // Search modal
+  let searchDebounceTimer = null
+  let lastFocusedBeforeSearch = null
+
+  function openSearchModal() {
+    lastFocusedBeforeSearch = document.activeElement
+    searchModal.style.display = ''
+    searchInput.value = ''
+    searchResults.innerHTML = ''
+    searchInput.focus()
+    announce('Start new conversation. Search for a user.')
+  }
+
+  function closeSearchModal() {
+    searchModal.style.display = 'none'
+    searchResults.innerHTML = ''
+    searchInput.value = ''
+    if (lastFocusedBeforeSearch && lastFocusedBeforeSearch.focus) {
+      lastFocusedBeforeSearch.focus()
+    }
+    lastFocusedBeforeSearch = null
+  }
+
+  newConversationButton.addEventListener('click', openSearchModal)
+  searchClose.addEventListener('click', closeSearchModal)
+
+  searchInput.addEventListener('input', () => {
+    clearTimeout(searchDebounceTimer)
+    const query = searchInput.value.trim()
+    if (!query) {
+      searchResults.innerHTML = ''
+      return
+    }
+    searchDebounceTimer = setTimeout(() => performSearch(query), 300)
+  })
+
+  searchInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      closeSearchModal()
+      return
+    }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      const first = searchResults.querySelector('.search-result')
+      if (first) first.focus()
+      return
+    }
+  })
+
+  async function performSearch(query) {
+    try {
+      const result = await window.electronAPI.tg.searchGlobal(query)
+      renderSearchResults(result.users || [], result.groups || [])
+    } catch (err) {
+      console.error('Search failed:', err)
+      announce('Search failed.')
+    }
+  }
+
+  function renderSearchResults(users, groups) {
+    searchResults.innerHTML = ''
+    const allResults = [...users, ...groups]
+    if (allResults.length === 0) {
+      const empty = document.createElement('li')
+      empty.className = 'search-result-empty'
+      empty.textContent = 'No results found'
+      empty.setAttribute('role', 'option')
+      empty.setAttribute('aria-disabled', 'true')
+      searchResults.appendChild(empty)
+      announce('No results found.')
+      return
+    }
+
+    function createResultItem(result, type) {
+      const li = document.createElement('li')
+      const btn = document.createElement('button')
+      btn.type = 'button'
+      btn.className = 'search-result'
+      btn.tabIndex = 0
+      btn.setAttribute('role', 'option')
+      btn.dataset.id = result.id
+      btn.dataset.resultType = type
+
+      const name = document.createElement('span')
+      name.className = 'search-result-name'
+      name.textContent = result.name
+
+      btn.appendChild(name)
+
+      const meta = document.createElement('span')
+      meta.className = 'search-result-meta'
+      if (type === 'group') {
+        const subtype = result.type === 'channel' ? 'Channel' : 'Group'
+        meta.textContent = `${subtype}${result.participantsCount ? ` · ${result.participantsCount} members` : ''}`
+      } else if (result.username) {
+        meta.textContent = `@${result.username}`
+      }
+      if (meta.textContent) btn.appendChild(meta)
+
+      const isJoined = !!dialogs.find(d => d.id === result.id)
+      const isPublic = result.isPublic !== false
+
+      function onActivate() {
+        if (type === 'user') {
+          openSearchResultDialog(result.id, false)
+        } else if (isJoined) {
+          openSearchResultDialog(result.id, false)
+        } else if (isPublic) {
+          openSearchResultDialog(result.id, true)
+        } else {
+          announce('This is a private group. You must join to view messages.')
+        }
+      }
+
+      function buildContextItems() {
+        const items = []
+        if (type === 'user') {
+          items.push({ label: 'Start chat', action: () => openSearchResultDialog(result.id, false) })
+        } else if (isJoined) {
+          items.push({ label: 'Open chat', action: () => openSearchResultDialog(result.id, false) })
+          items.push({ label: 'Leave', action: () => leaveGroup(result.id) })
+        } else if (isPublic) {
+          items.push({ label: 'Preview messages', action: () => openSearchResultDialog(result.id, true) })
+          items.push({ label: 'Join', action: () => joinGroup(result.id) })
+        } else {
+          items.push({ label: 'Join', action: () => joinGroup(result.id) })
+        }
+        return items
+      }
+
+      btn.addEventListener('click', onActivate)
+      btn.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault()
+          onActivate()
+          return
+        }
+        if (e.key === 'ArrowDown') {
+          e.preventDefault()
+          const next = btn.parentElement.nextElementSibling?.querySelector('.search-result')
+          if (next) next.focus()
+          return
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault()
+          const prev = btn.parentElement.previousElementSibling?.querySelector('.search-result')
+          if (prev) {
+            prev.focus()
+          } else {
+            searchInput.focus()
+          }
+          return
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault()
+          closeSearchModal()
+        }
+      })
+      btn.addEventListener('contextmenu', (e) => {
+        e.preventDefault()
+        openContextMenu(buildContextItems(), btn, e.clientX, e.clientY)
+      })
+
+      li.appendChild(btn)
+      return li
+    }
+
+    users.forEach((user) => {
+      searchResults.appendChild(createResultItem(user, 'user'))
+    })
+    groups.forEach((group) => {
+      searchResults.appendChild(createResultItem(group, 'group'))
+    })
+
+    announce(`${allResults.length} result${allResults.length === 1 ? '' : 's'} found.`)
+  }
+
+  async function openSearchResultDialog(chatId, preview = false) {
+    closeSearchModal()
+    let dialog = dialogs.find(d => d.id === chatId)
+    if (!dialog) {
+      try {
+        dialog = await window.electronAPI.tg.getDialog(chatId)
+        if (dialog) {
+          dialogs.push(dialog)
+          const li = document.createElement('li')
+          const btn = document.createElement('button')
+          btn.type = 'button'
+          btn.className = 'conversation-item'
+          btn.tabIndex = -1
+          btn.dataset.id = dialog.id
+          const titleSpan = document.createElement('span')
+          titleSpan.className = 'conversation-title'
+          titleSpan.textContent = dialog.title
+          const last = document.createElement('span')
+          last.className = 'conversation-last'
+          last.textContent = dialog.lastMessage || 'No messages'
+          btn.appendChild(titleSpan)
+          btn.appendChild(last)
+          li.appendChild(btn)
+          conversationList.appendChild(li)
+          attachConversationContextMenu(btn, dialog)
+          const allItems = Array.from(conversationList.querySelectorAll('.conversation-item'))
+          allItems.forEach((item, i) => {
+            item.tabIndex = i === allItems.length - 1 ? 0 : -1
+          })
+          convNav.setActiveIndexWithoutFocus(allItems.length - 1)
+        }
+      } catch (err) {
+        console.error('Failed to get dialog:', err)
+        announce('Failed to open conversation.')
+        return
+      }
+    }
+    if (dialog) {
+      openDialog(dialog, preview)
+    }
   }
 
   async function loadMoreMessages() {
@@ -1299,6 +1830,9 @@ export function MainAppScreen() {
   cancelVoiceButton.addEventListener('click', cancelRecording)
 
   backButton.addEventListener('click', closeDialog)
+  joinGroupButton.addEventListener('click', () => {
+    if (currentDialogId) joinGroup(currentDialogId)
+  })
 
   // Handle notification clicks
   unsubscribeNotification = window.electronAPI.tg.onNotificationClicked((chatId) => {
@@ -1393,7 +1927,13 @@ export function MainAppScreen() {
       return
     }
     if (e.key === 'Escape') {
-      if (recordingUI.style.display !== 'none') {
+      if (activeContextMenu) {
+        e.preventDefault()
+        closeContextMenu()
+      } else if (searchModal.style.display !== 'none') {
+        e.preventDefault()
+        closeSearchModal()
+      } else if (recordingUI.style.display !== 'none') {
         e.preventDefault()
         cancelRecording()
       } else if (previewUI.style.display !== 'none') {
@@ -1441,5 +1981,7 @@ export function cleanupMainApp() {
   attachedFiles = []
   replyingTo = null
   editingMessage = null
+  isPreviewing = false
   clearAllTyping()
+  closeContextMenu(false)
 }
