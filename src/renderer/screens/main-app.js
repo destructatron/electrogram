@@ -1,4 +1,5 @@
 import { announce } from '../app.js'
+import { getMessageReadableText, shouldPreventMessageTextViewerKeydown } from '../message-utils.js'
 
 let currentDialogId = null
 let dialogs = []
@@ -46,6 +47,16 @@ export function MainAppScreen() {
         <input type="text" id="search-input" placeholder="Search for users and groups..." aria-label="Search for users and groups" autocomplete="off">
         <ul class="search-results" id="search-results" role="listbox" aria-label="Search results"></ul>
         <button id="search-close" type="button" class="search-close">Cancel</button>
+      </div>
+    </div>
+    <div id="message-text-viewer" class="message-text-viewer" role="dialog" aria-modal="true" aria-labelledby="message-text-viewer-title" style="display:none;">
+      <div class="message-text-viewer-content">
+        <div class="message-text-viewer-header">
+          <h2 id="message-text-viewer-title">Message text</h2>
+          <button id="message-text-viewer-close" type="button" aria-label="Close message text viewer">Close</button>
+        </div>
+        <textarea id="message-text-viewer-field" rows="12" aria-readonly="true" aria-label="Message text, read only" spellcheck="false"></textarea>
+        <p class="hint-text">Read-only. Use arrow keys to read line by line. Press Escape to close.</p>
       </div>
     </div>
     <section class="chat-pane" id="chat-pane" aria-label="Chat">
@@ -127,6 +138,11 @@ export function MainAppScreen() {
   const searchClose = container.querySelector('#search-close')
   const previewBanner = container.querySelector('#preview-banner')
   const joinGroupButton = container.querySelector('#join-group-button')
+  const messageTextViewer = container.querySelector('#message-text-viewer')
+  const messageTextViewerField = container.querySelector('#message-text-viewer-field')
+  const messageTextViewerClose = container.querySelector('#message-text-viewer-close')
+  let lastFocusedBeforeMessageTextViewer = null
+  let currentMessageTextViewerValue = ''
 
   // Notification sounds
   const sentSound = new Audio(new URL('../../sounds/telegram_sent.mp3', import.meta.url).href)
@@ -280,6 +296,27 @@ export function MainAppScreen() {
     if (msg.isVoice) return 'Voice message'
     if (msg.hasDocument) return msg.fileName
     return ''
+  }
+
+  function openMessageTextViewer(msg, triggerElement) {
+    lastFocusedBeforeMessageTextViewer = triggerElement || document.activeElement
+    currentMessageTextViewerValue = getMessageReadableText(msg)
+    messageTextViewerField.value = currentMessageTextViewerValue
+    messageTextViewer.style.display = ''
+    messageTextViewerField.focus()
+    messageTextViewerField.setSelectionRange(0, 0)
+    announce('Message text viewer opened. Use arrow keys to read line by line. Press Escape to close.')
+  }
+
+  function closeMessageTextViewer(returnFocus = true) {
+    if (messageTextViewer.style.display === 'none') return
+    messageTextViewer.style.display = 'none'
+    messageTextViewerField.value = ''
+    currentMessageTextViewerValue = ''
+    if (returnFocus && lastFocusedBeforeMessageTextViewer?.focus) {
+      lastFocusedBeforeMessageTextViewer.focus()
+    }
+    lastFocusedBeforeMessageTextViewer = null
   }
 
   // Typing indicators
@@ -511,6 +548,14 @@ export function MainAppScreen() {
         } else if (li.dataset.document === 'true') {
           e.preventDefault()
           downloadDocument(li.dataset.messageId, li.dataset.fileName)
+        }
+        return
+      }
+      if (e.key === 'v' || e.key === 'V') {
+        const msg = messages.find(m => String(m.id) === li.dataset.messageId)
+        if (msg) {
+          e.preventDefault()
+          openMessageTextViewer(msg, li)
         }
         return
       }
@@ -1830,6 +1875,36 @@ export function MainAppScreen() {
   cancelVoiceButton.addEventListener('click', cancelRecording)
 
   backButton.addEventListener('click', closeDialog)
+  messageTextViewerClose.addEventListener('click', () => closeMessageTextViewer())
+  messageTextViewerField.addEventListener('keydown', (e) => {
+    e.stopPropagation()
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      closeMessageTextViewer()
+      return
+    }
+    if (shouldPreventMessageTextViewerKeydown(e)) {
+      e.preventDefault()
+    }
+  })
+  messageTextViewerField.addEventListener('beforeinput', (e) => {
+    e.preventDefault()
+  })
+  messageTextViewerField.addEventListener('paste', (e) => {
+    e.preventDefault()
+  })
+  messageTextViewerField.addEventListener('cut', (e) => {
+    e.preventDefault()
+  })
+  messageTextViewerField.addEventListener('drop', (e) => {
+    e.preventDefault()
+  })
+  messageTextViewerField.addEventListener('input', () => {
+    const start = Math.min(messageTextViewerField.selectionStart, currentMessageTextViewerValue.length)
+    const end = Math.min(messageTextViewerField.selectionEnd, currentMessageTextViewerValue.length)
+    messageTextViewerField.value = currentMessageTextViewerValue
+    messageTextViewerField.setSelectionRange(start, end)
+  })
   joinGroupButton.addEventListener('click', () => {
     if (currentDialogId) joinGroup(currentDialogId)
   })
@@ -1927,7 +2002,10 @@ export function MainAppScreen() {
       return
     }
     if (e.key === 'Escape') {
-      if (activeContextMenu) {
+      if (messageTextViewer.style.display !== 'none') {
+        e.preventDefault()
+        closeMessageTextViewer()
+      } else if (activeContextMenu) {
         e.preventDefault()
         closeContextMenu()
       } else if (searchModal.style.display !== 'none') {
