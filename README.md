@@ -86,7 +86,8 @@ To enable notifications on your own signed build, set the `CSC_LINK` and `CSC_KE
 | `R` | Reply to focused message |
 | `E` | Edit your outgoing text message |
 | `C` | Copy focused message to clipboard |
-| `Escape` | Cancel reply / editing / close chat |
+| `V` | Open the focused message in a read-only text viewer |
+| `Escape` | Cancel reply / editing / close message text viewer / close chat |
 | `↑ / ↓` | Navigate items in a list |
 | `Home / End` | Jump to first/last item |
 

@@ -375,6 +375,64 @@ button, input, textarea, [role="listitem"], [role="option"] {
   text-align: right;
 }
 
+.message-text-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.65);
+}
+
+.message-text-viewer-content {
+  width: min(760px, 100%);
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
+.message-text-viewer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.message-text-viewer-header h2 {
+  margin: 0;
+  font-size: 1.125rem;
+}
+
+.message-text-viewer-header button {
+  padding: 0.5rem 0.75rem;
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.message-text-viewer textarea {
+  width: 100%;
+  min-height: 18rem;
+  padding: 0.75rem;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
 .message-date-separator {
   text-align: center;
   color: var(--text-muted);
