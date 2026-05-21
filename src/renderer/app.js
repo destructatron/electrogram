@@ -60,6 +60,13 @@ let shortcutsEnabled = true
 let messageDetailsDialog = null
 let lastFocusedBeforeDialog = null
 
+function normalizeDate(date) {
+  if (!date) return 0
+  if (typeof date === 'number') return date
+  if (date instanceof Date) return Math.floor(date.getTime() / 1000)
+  return Math.floor(new Date(date).getTime() / 1000)
+}
+
 export function showMessageDetailsDialog(messageData) {
   // Ensure only one dialog instance exists at a time
   if (messageDetailsDialog) {
@@ -76,7 +83,7 @@ export function showMessageDetailsDialog(messageData) {
   dialog.setAttribute('aria-modal', 'true')
   dialog.setAttribute('aria-label', 'Message details')
 
-  const timestamp = new Date(messageData.timestamp * 1000).toLocaleString()
+  const timestamp = new Date(normalizeDate(messageData.date) * 1000).toLocaleTimeString()
   const senderDisplay = messageData.isOutgoing ? 'You' : (messageData.senderName || 'Unknown')
 
   dialog.innerHTML = `

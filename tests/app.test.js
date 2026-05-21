@@ -20,7 +20,13 @@ global.window = {
   },
 }
 
-const { announce, setScreen, enableShortcuts } = await import('../src/renderer/app.js')
+const {
+  announce,
+  setScreen,
+  enableShortcuts,
+  showMessageDetailsDialog,
+  closeMessageDetailsDialog,
+} = await import('../src/renderer/app.js')
 
 describe('announce', () => {
   beforeEach(() => {
@@ -97,5 +103,35 @@ describe('enableShortcuts', () => {
     expect(typeof enableShortcuts).toBe('function')
     enableShortcuts(false)
     enableShortcuts(true)
+  })
+})
+
+describe('showMessageDetailsDialog', () => {
+  afterEach(() => {
+    closeMessageDetailsDialog()
+  })
+
+  it.each([
+    1779322658,
+    new Date(1779322658 * 1000),
+    new Date(1779322658 * 1000).toISOString(),
+    null,
+  ])('formats date %s with the same visible time logic as the message list', (date) => {
+    showMessageDetailsDialog({
+      date,
+      isOutgoing: true,
+      text: 'Hello',
+    })
+
+    const timestampInput = document.getElementById('msg-timestamp')
+    const normalizedDate = !date
+      ? 0
+      : typeof date === 'number'
+        ? date
+        : date instanceof Date
+          ? Math.floor(date.getTime() / 1000)
+          : Math.floor(new Date(date).getTime() / 1000)
+
+    expect(timestampInput.value).toBe(new Date(normalizedDate * 1000).toLocaleTimeString())
   })
 })
