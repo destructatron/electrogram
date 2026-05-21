@@ -15,6 +15,7 @@ try {
       sendMessage: (dialogId, text, replyToMsgId) => ipcRenderer.invoke('tg:sendMessage', dialogId, text, replyToMsgId),
       markAsRead: (dialogId, maxId) => ipcRenderer.invoke('tg:markAsRead', dialogId, maxId),
       downloadVoiceMessage: (messageId) => ipcRenderer.invoke('tg:downloadVoiceMessage', messageId),
+      downloadPhoto: (messageId) => ipcRenderer.invoke('tg:downloadPhoto', messageId),
       sendVoiceMessage: (dialogId, audioBuffer, duration) => ipcRenderer.invoke('tg:sendVoiceMessage', dialogId, audioBuffer, duration),
       sendFiles: (dialogId, filePaths, caption, replyToMsgId) => ipcRenderer.invoke('tg:sendFiles', dialogId, filePaths, caption, replyToMsgId),
       editMessage: (dialogId, messageId, newText) => ipcRenderer.invoke('tg:editMessage', dialogId, messageId, newText),

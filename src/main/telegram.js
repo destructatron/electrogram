@@ -107,11 +107,32 @@ class TelegramManager {
     return { isVoice: false, voiceDuration: 0 }
   }
 
+  getPhotoInfo(msg) {
+    const media = msg.media
+    if (media && media.className === 'MessageMediaPhoto' && media.photo) {
+      const sizes = media.photo.sizes || []
+      let width = 0
+      let height = 0
+      for (const size of sizes) {
+        if (size && typeof size.w === 'number' && typeof size.h === 'number') {
+          if (size.w > width) {
+            width = size.w
+            height = size.h
+          }
+        }
+      }
+      return { hasPhoto: true, photoWidth: width, photoHeight: height }
+    }
+    return null
+  }
+
   getReplyPreview(msg) {
     const text = msg.message || msg.text || ''
     if (text) return text
     const voiceInfo = this.getVoiceInfo(msg)
     if (voiceInfo.isVoice) return 'Voice message'
+    const photoInfo = this.getPhotoInfo(msg)
+    if (photoInfo) return 'Photo'
     if (msg.action) return 'Service message'
     return ''
   }
@@ -206,6 +227,7 @@ class TelegramManager {
       const voiceInfo = this.getVoiceInfo(msg)
       const serviceText = await this.getServiceText(msg)
       const fileInfo = this.getFileInfo(msg)
+      const photoInfo = this.getPhotoInfo(msg)
       let replyTo = null
       if (msg.replyToMsgId) {
         const original = await msg.getReplyMessage()
@@ -222,12 +244,15 @@ class TelegramManager {
       const update = {
         type: 'newMessage',
         id: msg.id,
-        text: msg.text || serviceText || (voiceInfo.isVoice ? 'Voice message' : '') || (fileInfo ? fileInfo.fileName : ''),
+        text: msg.text || serviceText || (voiceInfo.isVoice ? 'Voice message' : '') || (photoInfo ? 'Photo' : '') || (fileInfo ? fileInfo.fileName : ''),
         serviceText,
         replyTo,
         hasDocument: !!fileInfo,
         fileName: fileInfo ? fileInfo.fileName : null,
         documentSize: fileInfo ? fileInfo.documentSize : 0,
+        hasPhoto: !!photoInfo,
+        photoWidth: photoInfo ? photoInfo.photoWidth : 0,
+        photoHeight: photoInfo ? photoInfo.photoHeight : 0,
         date: msg.date,
         senderId: msg.senderId ? msg.senderId.toString() : null,
         senderName: this.getDisplayName(sender),
@@ -302,6 +327,7 @@ class TelegramManager {
           this.messagesCache.set(Number(msg.id), msg)
           const voiceInfo = this.getVoiceInfo(msg)
           const fileInfo = this.getFileInfo(msg)
+          const photoInfo = this.getPhotoInfo(msg)
           const inlineButtons = this.getInlineButtons(msg)
           this.pushUpdate({
             type: 'editMessage',
@@ -310,6 +336,9 @@ class TelegramManager {
             hasDocument: !!fileInfo,
             fileName: fileInfo ? fileInfo.fileName : null,
             documentSize: fileInfo ? Number(fileInfo.documentSize) || 0 : 0,
+            hasPhoto: !!photoInfo,
+            photoWidth: photoInfo ? photoInfo.photoWidth : 0,
+            photoHeight: photoInfo ? photoInfo.photoHeight : 0,
             chatId: msg.chatId ? msg.chatId.toString() : null,
             isVoice: voiceInfo.isVoice,
             voiceDuration: voiceInfo.voiceDuration,
@@ -385,6 +414,7 @@ class TelegramManager {
       }
       const serviceText = await this.getServiceText(d.message)
       const voiceInfo = this.getVoiceInfo(d.message)
+      const photoInfo = this.getPhotoInfo(d.message)
       const notifySettings = d.dialog && d.dialog.notifySettings ? d.dialog.notifySettings : null
       const muteUntil = notifySettings && typeof notifySettings.muteUntil === 'number' ? notifySettings.muteUntil : 0
       const silent = notifySettings && notifySettings.silent === true
@@ -393,7 +423,7 @@ class TelegramManager {
         id,
         title: String(title),
         unreadCount: d.unreadCount || 0,
-        lastMessage: d.message ? (d.message.text || serviceText || (voiceInfo.isVoice ? 'Voice message' : '')) : '',
+        lastMessage: d.message ? (d.message.text || serviceText || (voiceInfo.isVoice ? 'Voice message' : '') || (photoInfo ? 'Photo' : '')) : '',
         isUser,
         isChannel: entity.className === 'Channel',
         isGroup: !isUser && entity.className !== 'Channel',
@@ -440,6 +470,7 @@ class TelegramManager {
       const voiceInfo = this.getVoiceInfo(m)
       const serviceText = await this.getServiceText(m)
       const fileInfo = this.getFileInfo(m)
+      const photoInfo = this.getPhotoInfo(m)
       let replyTo = null
       if (m.replyToMsgId) {
         const original = msgMap.get(m.replyToMsgId)
@@ -460,6 +491,9 @@ class TelegramManager {
         hasDocument: !!fileInfo,
         fileName: fileInfo ? fileInfo.fileName : null,
         documentSize: fileInfo ? fileInfo.documentSize : 0,
+        hasPhoto: !!photoInfo,
+        photoWidth: photoInfo ? photoInfo.photoWidth : 0,
+        photoHeight: photoInfo ? photoInfo.photoHeight : 0,
         date: m.date ? (typeof m.date === 'number' ? m.date : Math.floor(m.date.getTime() / 1000)) : 0,
         senderId: m.senderId ? m.senderId.toString() : null,
         senderName: m.out ? 'You' : this.getDisplayName(m.sender),
@@ -581,13 +615,15 @@ class TelegramManager {
       const filePath = filePaths[i]
       const fileCaption = i === 0 ? caption : ''
       const replyTo = i === 0 && replyToMsgId ? replyToMsgId : undefined
-      const result = await this.client.sendFile(entity, { file: filePath, forceDocument: true, caption: fileCaption, replyTo })
+      const isImage = /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(filePath)
+      const result = await this.client.sendFile(entity, { file: filePath, forceDocument: !isImage, caption: fileCaption, replyTo })
       const msg = Array.isArray(result) ? result[0] : result
       if (msg) {
         this.messagesCache.set(Number(msg.id), msg)
         const voiceInfo = this.getVoiceInfo(msg)
         const serviceText = await this.getServiceText(msg)
         const fileInfo = this.getFileInfo(msg)
+        const photoInfo = this.getPhotoInfo(msg)
         sentMessages.push({
           id: msg.id,
           text: msg.text || '',
@@ -596,6 +632,9 @@ class TelegramManager {
           hasDocument: !!fileInfo,
           fileName: fileInfo ? fileInfo.fileName : null,
           documentSize: fileInfo ? Number(fileInfo.documentSize) || 0 : 0,
+          hasPhoto: !!photoInfo,
+          photoWidth: photoInfo ? photoInfo.photoWidth : 0,
+          photoHeight: photoInfo ? photoInfo.photoHeight : 0,
           date: msg.date ? (typeof msg.date === 'number' ? msg.date : Math.floor(msg.date.getTime() / 1000)) : 0,
           senderId: msg.senderId ? msg.senderId.toString() : null,
           senderName: this.getDisplayName(msg.sender),
@@ -637,6 +676,15 @@ class TelegramManager {
     if (!msg) throw new Error('Message not found')
     const buffer = await this.client.downloadMedia(msg)
     if (!buffer) throw new Error('Failed to download voice message')
+    return buffer
+  }
+
+  async downloadPhoto(messageId) {
+    if (!this.client) throw new Error('Not connected')
+    const msg = this.messagesCache.get(Number(messageId))
+    if (!msg) throw new Error('Message not found')
+    const buffer = await this.client.downloadMedia(msg)
+    if (!buffer) throw new Error('Failed to download photo')
     return buffer
   }
 

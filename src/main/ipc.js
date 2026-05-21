@@ -48,6 +48,10 @@ export function registerIpc() {
     return telegram.downloadVoiceMessage(messageId)
   })
 
+  ipcMain.handle('tg:downloadPhoto', async (_event, messageId) => {
+    return telegram.downloadPhoto(messageId)
+  })
+
   ipcMain.handle('tg:sendVoiceMessage', async (_event, dialogId, audioBuffer, duration) => {
     return telegram.sendVoiceMessage(dialogId, audioBuffer, duration)
   })

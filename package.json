@@ -14,7 +14,9 @@
     "dist:linux": "electron-builder --linux",
     "dist:win": "electron-builder --win",
     "dist:mac": "electron-builder --mac",
-    "postinstall": ""
+    "postinstall": "",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "telegram": "^2.26.16"
@@ -23,7 +25,9 @@
     "electron": "^35.0.0",
     "electron-builder": "^26.8.1",
     "electron-vite": "^5.0.0",
-    "vite": "^6.0.0"
+    "happy-dom": "^20.9.0",
+    "vite": "^6.0.0",
+    "vitest": "^4.1.6"
   },
   "keywords": [
     "telegram",

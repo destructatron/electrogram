@@ -271,6 +271,7 @@ export function MainAppScreen() {
   function getMessagePreviewText(msg) {
     if (msg.isVoice) return `Voice message (${formatDuration(msg.voiceDuration || 0)})`
     if (msg.hasDocument) return `${msg.fileName || 'File'} (${formatFileSize(msg.documentSize || 0)})`
+    if (msg.hasPhoto) return msg.text ? `Photo: ${msg.text}` : 'Photo'
     return msg.serviceText || msg.text || ''
   }
 
@@ -279,6 +280,7 @@ export function MainAppScreen() {
     if (msg.serviceText) return msg.serviceText
     if (msg.isVoice) return 'Voice message'
     if (msg.hasDocument) return msg.fileName
+    if (msg.hasPhoto) return msg.text || 'Photo'
     return ''
   }
 
@@ -500,6 +502,34 @@ export function MainAppScreen() {
     }
   }
 
+  async function loadPhoto(messageId, img) {
+    try {
+      const buffer = await window.electronAPI.tg.downloadPhoto(messageId)
+      const blob = new Blob([buffer], { type: 'image/jpeg' })
+      const url = URL.createObjectURL(blob)
+      img.src = url
+      img.dataset.blobUrl = url
+    } catch (err) {
+      console.error('Failed to load photo:', err)
+      img.alt = 'Failed to load photo'
+    }
+  }
+
+  async function savePhoto(messageId) {
+    try {
+      announce('Downloading photo...')
+      const savedPath = await window.electronAPI.tg.downloadFile(messageId, 'photo.jpg')
+      if (savedPath) {
+        announce('Photo saved')
+      } else {
+        announce('Download cancelled')
+      }
+    } catch (err) {
+      console.error('Failed to download photo:', err)
+      announce('Failed to download photo')
+    }
+  }
+
   // Direct arrow-key handlers on message items (fallback + screen-reader safety)
   function attachMessageKeyHandler(li) {
     li.addEventListener('keydown', (e) => {
@@ -511,6 +541,9 @@ export function MainAppScreen() {
         } else if (li.dataset.document === 'true') {
           e.preventDefault()
           downloadDocument(li.dataset.messageId, li.dataset.fileName)
+        } else if (li.dataset.photo === 'true') {
+          e.preventDefault()
+          savePhoto(li.dataset.messageId)
         }
         return
       }
@@ -1328,6 +1361,8 @@ export function MainAppScreen() {
     } else if (msg.hasDocument) {
       content = `File ${msg.fileName || 'unknown'} (${formatFileSize(msg.documentSize || 0)})`
       if (msg.text) content += `: ${msg.text}`
+    } else if (msg.hasPhoto) {
+      content = msg.text ? `Photo: ${msg.text}` : 'Photo'
     } else if (msg.serviceText) {
       content = msg.serviceText
     } else {
@@ -1445,6 +1480,7 @@ export function MainAppScreen() {
       li.setAttribute('role', 'listitem')
       li.tabIndex = index === (focusIndex !== null ? focusIndex : messages.length - 1) ? 0 : -1
       li.dataset.messageId = msg.id
+      li._messageData = msg
       const senderLabel = msg.isOutgoing ? 'You' : (msg.senderName || 'Unknown')
 
       if (msg.replyTo) {
@@ -1484,6 +1520,34 @@ export function MainAppScreen() {
           li.appendChild(text)
         }
         li.setAttribute('aria-label', buildMessageLabel(msg, senderLabel))
+      } else if (msg.hasPhoto) {
+        li.dataset.photo = 'true'
+        const photoContainer = document.createElement('div')
+        photoContainer.className = 'message-photo-container'
+        const img = document.createElement('img')
+        img.className = 'message-photo'
+        img.alt = msg.text ? `Photo: ${msg.text}` : 'Photo'
+        img.dataset.messageId = msg.id
+        if (msg.photoWidth && msg.photoHeight) {
+          const aspect = msg.photoWidth / msg.photoHeight
+          if (aspect > 1) {
+            img.style.maxWidth = '320px'
+            img.style.height = 'auto'
+          } else {
+            img.style.maxHeight = '240px'
+            img.style.width = 'auto'
+          }
+        }
+        photoContainer.appendChild(img)
+        li.appendChild(photoContainer)
+        if (msg.text) {
+          const text = document.createElement('div')
+          text.className = 'message-text'
+          text.textContent = msg.text
+          li.appendChild(text)
+        }
+        li.setAttribute('aria-label', buildMessageLabel(msg, senderLabel))
+        loadPhoto(msg.id, img)
       } else if (msg.serviceText) {
         li.classList.add('service')
         const service = document.createElement('div')
@@ -1528,6 +1592,7 @@ export function MainAppScreen() {
     li.setAttribute('role', 'listitem')
     li.tabIndex = -1
     li.dataset.messageId = msg.id
+    li._messageData = msg
     const senderLabel = msg.isOutgoing ? 'You' : (msg.senderName || 'Unknown')
 
     if (msg.replyTo) {
@@ -1567,6 +1632,34 @@ export function MainAppScreen() {
         li.appendChild(text)
       }
       li.setAttribute('aria-label', buildMessageLabel(msg, senderLabel))
+    } else if (msg.hasPhoto) {
+      li.dataset.photo = 'true'
+      const photoContainer = document.createElement('div')
+      photoContainer.className = 'message-photo-container'
+      const img = document.createElement('img')
+      img.className = 'message-photo'
+      img.alt = msg.text ? `Photo: ${msg.text}` : 'Photo'
+      img.dataset.messageId = msg.id
+      if (msg.photoWidth && msg.photoHeight) {
+        const aspect = msg.photoWidth / msg.photoHeight
+        if (aspect > 1) {
+          img.style.maxWidth = '320px'
+          img.style.height = 'auto'
+        } else {
+          img.style.maxHeight = '240px'
+          img.style.width = 'auto'
+        }
+      }
+      photoContainer.appendChild(img)
+      li.appendChild(photoContainer)
+      if (msg.text) {
+        const text = document.createElement('div')
+        text.className = 'message-text'
+        text.textContent = msg.text
+        li.appendChild(text)
+      }
+      li.setAttribute('aria-label', buildMessageLabel(msg, senderLabel))
+      loadPhoto(msg.id, img)
     } else if (msg.serviceText) {
       li.classList.add('service')
       const service = document.createElement('div')
@@ -1615,19 +1708,19 @@ export function MainAppScreen() {
     // Update conversation last message and reorder
     const dialog = dialogs.find(d => d.id === currentDialogId)
     if (dialog) {
-      dialog.lastMessage = msg.isVoice ? 'Voice message' : (msg.hasDocument ? (msg.text || msg.fileName) : msg.text)
+      dialog.lastMessage = msg.isVoice ? 'Voice message' : (msg.hasDocument ? (msg.text || msg.fileName) : (msg.hasPhoto ? (msg.text || 'Photo') : msg.text))
       dialog.date = msg.date
     }
     const convItem = conversationList.querySelector(`[data-id="${currentDialogId}"]`)
     if (convItem) {
       const last = convItem.querySelector('.conversation-last')
-      if (last) last.textContent = msg.isVoice ? 'Voice message' : (msg.hasDocument ? (msg.text || msg.fileName) : msg.text)
+      if (last) last.textContent = msg.isVoice ? 'Voice message' : (msg.hasDocument ? (msg.text || msg.fileName) : (msg.hasPhoto ? (msg.text || 'Photo') : msg.text))
     }
     reorderDialogs()
 
     if (!msg.isOutgoing) {
       window.electronAPI.tg.markAsRead(currentDialogId, msg.id).catch(() => {})
-      announce(`New message in ${chatTitle.textContent}: ${msg.isVoice ? 'Voice message' : (msg.hasDocument ? (msg.text || msg.fileName) : msg.text)}`)
+      announce(`New message in ${chatTitle.textContent}: ${msg.isVoice ? 'Voice message' : (msg.hasDocument ? (msg.text || msg.fileName) : (msg.hasPhoto ? (msg.text || 'Photo') : msg.text))}`)
     }
   }
 
@@ -1859,10 +1952,10 @@ export function MainAppScreen() {
         const convItem = conversationList.querySelector(`[data-id="${currentDialogId}"]`)
         if (convItem) {
           const last = convItem.querySelector('.conversation-last')
-          if (last) last.textContent = update.isVoice ? 'Voice message' : (update.hasDocument ? (update.text || update.fileName) : update.text)
+          if (last) last.textContent = update.isVoice ? 'Voice message' : (update.hasDocument ? (update.text || update.fileName) : (update.hasPhoto ? (update.text || 'Photo') : update.text))
           const dialog = dialogs.find(d => d.id === currentDialogId)
           if (dialog) {
-            dialog.lastMessage = update.isVoice ? 'Voice message' : (update.hasDocument ? (update.text || update.fileName) : update.text)
+            dialog.lastMessage = update.isVoice ? 'Voice message' : (update.hasDocument ? (update.text || update.fileName) : (update.hasPhoto ? (update.text || 'Photo') : update.text))
           }
         }
         announce('Message edited')
@@ -1887,7 +1980,7 @@ export function MainAppScreen() {
         if (!(dialog && dialog.muted)) {
           playReceivedSound()
           const title = dialog ? dialog.title : 'New message'
-          let body = update.isVoice ? 'Voice message' : (update.hasDocument ? (update.text || update.fileName) : update.text)
+          let body = update.isVoice ? 'Voice message' : (update.hasDocument ? (update.text || update.fileName) : (update.hasPhoto ? (update.text || 'Photo') : update.text))
           if (dialog && !dialog.isUser && update.senderName) {
             body = `${update.senderName}: ${body}`
           }
@@ -1895,7 +1988,7 @@ export function MainAppScreen() {
         }
         if (dialog) {
           dialog.unreadCount = (dialog.unreadCount || 0) + 1
-          dialog.lastMessage = update.isVoice ? 'Voice message' : (update.hasDocument ? (update.text || update.fileName) : update.text)
+          dialog.lastMessage = update.isVoice ? 'Voice message' : (update.hasDocument ? (update.text || update.fileName) : (update.hasPhoto ? (update.text || 'Photo') : update.text))
           dialog.date = update.date
         }
         const convItem = conversationList.querySelector(`[data-id="${update.chatId}"]`)
