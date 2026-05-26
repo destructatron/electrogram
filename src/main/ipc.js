@@ -117,4 +117,7 @@ export function registerIpc() {
     return telegram.muteChat(chatId, muted)
   })
 
+  ipcMain.handle('tg:getUserProfile', async (_event, userId) => {
+    return telegram.getUserProfile(userId)
+  })
 }

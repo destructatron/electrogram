@@ -531,6 +531,133 @@ export function MainAppScreen() {
   }
 
   // Direct arrow-key handlers on message items (fallback + screen-reader safety)
+  async function openUserProfile(userId) {
+    try {
+      announce('Loading user profile...')
+      const profile = await window.electronAPI.tg.getUserProfile(userId)
+
+      // Create modal overlay
+      const overlay = document.createElement('div')
+      overlay.className = 'modal-overlay'
+      overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:1000;display:flex;align-items:center;justify-content:center;'
+
+      const dialog = document.createElement('div')
+      dialog.className = 'profile-modal'
+      dialog.setAttribute('role', 'dialog')
+      dialog.setAttribute('aria-modal', 'true')
+      dialog.setAttribute('aria-label', `Profile for ${profile.userName}`)
+      dialog.style.cssText = 'background:var(--bg-secondary);padding:1.5rem;border-radius:8px;min-width:300px;max-width:90vw;'
+
+      const closeBtn = document.createElement('button')
+      closeBtn.textContent = 'Close'
+      closeBtn.setAttribute('aria-label', 'Close profile')
+      closeBtn.style.cssText = 'margin-top:1rem;'
+
+      const messageBtn = document.createElement('button')
+      messageBtn.textContent = 'Message'
+      messageBtn.setAttribute('aria-label', `Message ${escapeHtml(profile.userName)}`)
+      messageBtn.style.cssText = 'margin-top:1rem;margin-right:0.5rem;'
+
+      const details = document.createElement('div')
+      details.className = 'profile-details'
+
+      // Escape HTML to prevent XSS
+      function escapeHtml(str) {
+        return str
+          .replace(/\u0026/g, '\u0026amp;')
+          .replace(/\u003c/g, '\u0026lt;')
+          .replace(/\u003e/g, '\u0026gt;')
+          .replace(/"/g, '\u0026quot;')
+      }
+
+      details.innerHTML = `
+        \u003ch2 tabindex="-1"\u003e${escapeHtml(profile.userName)}\u003c/h2\u003e
+        \u003cp\u003e\u003cstrong\u003eID:\u003c/strong\u003e ${escapeHtml(profile.userId)}\u003c/p\u003e
+        \u003cp\u003e\u003cstrong\u003eBio:\u003c/strong\u003e ${escapeHtml(profile.bio || 'No bio available')}\u003c/p\u003e
+      `
+
+      dialog.appendChild(details)
+      dialog.appendChild(messageBtn)
+      dialog.appendChild(closeBtn)
+      overlay.appendChild(dialog)
+      document.body.appendChild(overlay)
+
+      // Remember focus before opening
+      const previouslyFocused = document.activeElement
+
+      // Close function
+      function closeProfile() {
+        overlay.remove()
+        announce('Profile closed')
+        if (previouslyFocused && previouslyFocused.focus) {
+          previouslyFocused.focus()
+        }
+      }
+
+      closeBtn.addEventListener('click', closeProfile)
+
+      // Message button: start private chat
+      messageBtn.addEventListener('click', async () => {
+        closeProfile()
+        try {
+          announce(`Opening chat with ${profile.userName}...`)
+          const dialogData = await window.electronAPI.tg.getDialog(profile.userId)
+          if (dialogData) {
+            // Refresh dialogs list and open the chat
+            dialogs = await window.electronAPI.tg.getDialogs()
+            renderConversationList()
+            openDialog(dialogData)
+            announce(`Chat with ${profile.userName} opened`)
+          }
+        } catch (err) {
+          console.error('Failed to open chat:', err)
+          announce('Failed to open chat')
+        }
+      })
+
+      // Close on backdrop click
+      overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) {
+          closeProfile()
+        }
+      })
+
+      // Keyboard trap and Escape handling
+      dialog.addEventListener('keydown', (e) => {
+        if (e.key === 'Tab') {
+          const focusable = dialog.querySelectorAll(
+            'button, input, textarea, [tabindex]:not([tabindex="-1"])'
+          )
+          if (focusable.length === 0) return
+          const first = focusable[0]
+          const last = focusable[focusable.length - 1]
+          if (e.shiftKey) {
+            if (document.activeElement === first) {
+              e.preventDefault()
+              last.focus()
+            }
+          } else {
+            if (document.activeElement === last) {
+              e.preventDefault()
+              first.focus()
+            }
+          }
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault()
+          closeProfile()
+        }
+      })
+
+      // Focus the close button (first focusable element)
+      closeBtn.focus()
+      announce(`Viewing profile for ${profile.userName}`)
+    } catch (err) {
+      console.error('Failed to load user profile:', err)
+      announce('Failed to load user profile')
+    }
+  }
+
   function attachMessageKeyHandler(li) {
     li.addEventListener('keydown', (e) => {
       console.log('[MessageItem] keydown', e.key, 'on', li.textContent.slice(0, 20))
@@ -544,6 +671,14 @@ export function MainAppScreen() {
         } else if (li.dataset.photo === 'true') {
           e.preventDefault()
           savePhoto(li.dataset.messageId)
+        }
+        return
+      }
+      if (e.key === 'p' || e.key === 'P') {
+        const msg = messages.find(m => String(m.id) === li.dataset.messageId)
+        if (msg && msg.senderId) {
+          e.preventDefault()
+          openUserProfile(msg.senderId)
         }
         return
       }

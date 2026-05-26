@@ -218,6 +218,26 @@ class TelegramManager {
     }
   }
 
+  async getUserProfile(userId) {
+    if (!this.client) throw new Error('Not connected')
+    try {
+      const user = await this.client.getEntity(userId)
+      // Get full user info to access bio/about
+      const fullUserResult = await this.client.invoke(new Api.users.GetFullUser({
+        id: user.id
+      }))
+      const fullUser = fullUserResult.fullUser || fullUserResult
+      return {
+        userId: user.id.toString(),
+        userName: this.getDisplayName(user),
+        bio: fullUser.about || '',
+      }
+    } catch (err) {
+      console.error('Failed to fetch user profile:', err)
+      throw err
+    }
+  }
+
   setupHandlers() {
     if (!this.client) return
     this.client.addEventHandler(async (event) => {
