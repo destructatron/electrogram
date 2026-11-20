@@ -44,12 +44,12 @@ export function registerIpc() {
     return telegram.markAsRead(dialogId, maxId)
   })
 
-  ipcMain.handle('tg:downloadVoiceMessage', async (_event, messageId) => {
-    return telegram.downloadVoiceMessage(messageId)
+  ipcMain.handle('tg:downloadVoiceMessage', async (_event, chatId, messageId) => {
+    return telegram.downloadVoiceMessage(chatId, messageId)
   })
 
-  ipcMain.handle('tg:downloadPhoto', async (_event, messageId) => {
-    return telegram.downloadPhoto(messageId)
+  ipcMain.handle('tg:downloadPhoto', async (_event, chatId, messageId) => {
+    return telegram.downloadPhoto(chatId, messageId)
   })
 
   ipcMain.handle('tg:sendVoiceMessage', async (_event, dialogId, audioBuffer, duration) => {
@@ -64,8 +64,8 @@ export function registerIpc() {
     return telegram.editMessage(dialogId, messageId, newText)
   })
 
-  ipcMain.handle('tg:clickInlineButton', async (_event, messageId, row, col) => {
-    return telegram.clickInlineButton(messageId, row, col)
+  ipcMain.handle('tg:clickInlineButton', async (_event, chatId, messageId, row, col) => {
+    return telegram.clickInlineButton(chatId, messageId, row, col)
   })
 
   ipcMain.handle('tg:showNotification', async (_event, title, body, chatId) => {
@@ -85,8 +85,8 @@ export function registerIpc() {
     notification.show()
   })
 
-  ipcMain.handle('tg:downloadFile', async (_event, messageId, defaultFileName) => {
-    return telegram.downloadFile(messageId, defaultFileName)
+  ipcMain.handle('tg:downloadFile', async (_event, chatId, messageId, defaultFileName) => {
+    return telegram.downloadFile(chatId, messageId, defaultFileName)
   })
 
   ipcMain.handle('tg:openFileDialog', async () => {

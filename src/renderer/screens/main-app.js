@@ -13,6 +13,7 @@ let editingMessage = null
 let isPreviewing = false
 let activeContextMenu = null
 let contextMenuTrigger = null
+let screenInternalsCleanup = null
 
 function ensureUnsubscribed() {
   if (unsubscribeUpdate) {
@@ -27,6 +28,10 @@ function ensureUnsubscribed() {
 
 export function MainAppScreen() {
   ensureUnsubscribed()
+  if (screenInternalsCleanup) {
+    screenInternalsCleanup()
+    screenInternalsCleanup = null
+  }
 
   const container = document.createElement('div')
   container.className = 'main-app'
@@ -471,6 +476,8 @@ export function MainAppScreen() {
   }
 
   async function playVoiceMessage(messageId) {
+    const chatId = currentDialogId
+    if (!chatId) return
     if (currentAudio && currentMessageId === messageId) {
       if (currentAudio.paused) {
         currentAudio.play()
@@ -487,7 +494,7 @@ export function MainAppScreen() {
     }
     try {
       announce('Loading voice message...')
-      const buffer = await window.electronAPI.tg.downloadVoiceMessage(messageId)
+      const buffer = await window.electronAPI.tg.downloadVoiceMessage(chatId, messageId)
       const blob = new Blob([buffer], { type: 'audio/ogg' })
       const url = URL.createObjectURL(blob)
       currentAudio = new Audio(url)
@@ -503,8 +510,10 @@ export function MainAppScreen() {
   }
 
   async function loadPhoto(messageId, img) {
+    const chatId = currentDialogId
+    if (!chatId) return
     try {
-      const buffer = await window.electronAPI.tg.downloadPhoto(messageId)
+      const buffer = await window.electronAPI.tg.downloadPhoto(chatId, messageId)
       const blob = new Blob([buffer], { type: 'image/jpeg' })
       const url = URL.createObjectURL(blob)
       img.src = url
@@ -516,9 +525,11 @@ export function MainAppScreen() {
   }
 
   async function savePhoto(messageId) {
+    const chatId = currentDialogId
+    if (!chatId) return
     try {
       announce('Downloading photo...')
-      const savedPath = await window.electronAPI.tg.downloadFile(messageId, 'photo.jpg')
+      const savedPath = await window.electronAPI.tg.downloadFile(chatId, messageId, 'photo.jpg')
       if (savedPath) {
         announce('Photo saved')
       } else {
@@ -605,7 +616,7 @@ export function MainAppScreen() {
           if (dialogData) {
             // Refresh dialogs list and open the chat
             dialogs = await window.electronAPI.tg.getDialogs()
-            renderConversationList()
+            renderDialogs()
             openDialog(dialogData)
             announce(`Chat with ${profile.userName} opened`)
           }
@@ -895,6 +906,7 @@ export function MainAppScreen() {
   }
 
   async function openDialog(dialog, preview = false) {
+    const requestedId = dialog.id
     currentDialogId = dialog.id
     chatTitle.textContent = dialog.title
     emptyState.style.display = 'none'
@@ -919,6 +931,8 @@ export function MainAppScreen() {
 
     try {
       const msgs = await window.electronAPI.tg.getMessages(dialog.id, 100)
+      // A newer chat may have been opened while this request was in flight
+      if (currentDialogId !== requestedId) return
       messages = msgs
       renderMessages()
       if (msgs.length === 0) {
@@ -946,6 +960,7 @@ export function MainAppScreen() {
         messageInput.focus()
       }
     } catch (err) {
+      if (currentDialogId !== requestedId) return
       console.error('[MainApp] Failed to load messages:', err)
       const errorMsg = document.createElement('li')
       errorMsg.className = 'error-text'
@@ -1438,9 +1453,11 @@ export function MainAppScreen() {
 
   async function loadMoreMessages() {
     if (!currentDialogId || messages.length === 0) return
+    const chatId = currentDialogId
+    const oldestId = messages[0].id
     try {
-      const oldestId = messages[0].id
-      const newMsgs = await window.electronAPI.tg.getMessages(currentDialogId, 100, oldestId)
+      const newMsgs = await window.electronAPI.tg.getMessages(chatId, 100, oldestId)
+      if (currentDialogId !== chatId) return
       if (newMsgs.length === 0) {
         announce('No older messages.')
         return
@@ -1515,9 +1532,11 @@ export function MainAppScreen() {
   }
 
   async function handleButtonClick(messageId, row, col) {
+    const chatId = currentDialogId
+    if (!chatId) return
     try {
       announce('Processing...')
-      const result = await window.electronAPI.tg.clickInlineButton(messageId, row, col)
+      const result = await window.electronAPI.tg.clickInlineButton(chatId, messageId, row, col)
       if (result.type === 'url') {
         window.open(result.url, '_blank')
         announce('Opening link')
@@ -1862,24 +1881,26 @@ export function MainAppScreen() {
   async function sendMessage() {
     const text = messageInput.value.trim()
     if ((!text && attachedFiles.length === 0) || !currentDialogId) return
+    const chatId = currentDialogId
 
     // Handle editing an existing message
     if (editingMessage) {
       try {
         announce('Editing message...')
-        const edited = await window.electronAPI.tg.editMessage(currentDialogId, editingMessage.id, text)
+        const edited = await window.electronAPI.tg.editMessage(chatId, editingMessage.id, text)
         editingMessage = null
         renderEditPreview()
         messageInput.value = ''
+        if (currentDialogId !== chatId) return
         // Update the message in the list and DOM
         const msg = applyMessageEdit(edited.id, edited.text)
         // Update conversation last message
-        const convItem = conversationList.querySelector(`[data-id="${currentDialogId}"]`)
+        const convItem = conversationList.querySelector(`[data-id="${chatId}"]`)
         if (convItem) {
           const last = convItem.querySelector('.conversation-last')
           if (last) last.textContent = edited.text
         }
-        const dialog = dialogs.find(d => d.id === currentDialogId)
+        const dialog = dialogs.find(d => d.id === chatId)
         if (dialog) dialog.lastMessage = edited.text
       } catch (err) {
         console.error('Failed to edit message:', err)
@@ -1889,22 +1910,24 @@ export function MainAppScreen() {
     }
 
     const replyToMsgId = replyingTo ? replyingTo.id : null
+    const replyToSnapshot = replyingTo ? { ...replyingTo } : null
 
     if (attachedFiles.length > 0) {
       try {
         announce('Sending files...')
-        const msgs = await window.electronAPI.tg.sendFiles(currentDialogId, attachedFiles, text, replyToMsgId)
-        for (const msg of msgs) {
-          if (replyToMsgId) {
-            msg.replyTo = { ...replyingTo }
-          }
-          appendMessage(msg)
-        }
+        const msgs = await window.electronAPI.tg.sendFiles(chatId, attachedFiles, text, replyToMsgId)
         attachedFiles = []
         messageInput.value = ''
         replyingTo = null
         renderReplyPreview()
         renderAttachments()
+        if (currentDialogId !== chatId) return
+        for (const msg of msgs) {
+          if (replyToSnapshot) {
+            msg.replyTo = { ...replyToSnapshot }
+          }
+          appendMessage(msg)
+        }
       } catch (err) {
         console.error('Failed to send files:', err)
         announce('Failed to send files.')
@@ -1913,24 +1936,27 @@ export function MainAppScreen() {
     } else if (text) {
       messageInput.value = ''
       try {
-        const msg = await window.electronAPI.tg.sendMessage(currentDialogId, text, replyToMsgId)
-        if (replyToMsgId) {
-          msg.replyTo = { ...replyingTo }
-        }
-        appendMessage(msg)
+        const msg = await window.electronAPI.tg.sendMessage(chatId, text, replyToMsgId)
         replyingTo = null
         renderReplyPreview()
+        if (currentDialogId !== chatId) return
+        if (replyToSnapshot) {
+          msg.replyTo = { ...replyToSnapshot }
+        }
+        appendMessage(msg)
       } catch (err) {
         announce('Failed to send message.')
-        messageInput.value = text
+        if (currentDialogId === chatId) messageInput.value = text
       }
     }
   }
 
   async function downloadDocument(messageId, fileName) {
+    const chatId = currentDialogId
+    if (!chatId) return
     try {
       announce(`Downloading ${fileName}...`)
-      const savedPath = await window.electronAPI.tg.downloadFile(messageId, fileName)
+      const savedPath = await window.electronAPI.tg.downloadFile(chatId, messageId, fileName)
       if (savedPath) {
         announce(`Saved ${fileName}`)
       } else {
@@ -2030,13 +2056,14 @@ export function MainAppScreen() {
 
   async function sendRecordedVoice() {
     if (recordedChunks.length === 0 || !currentDialogId) return
+    const chatId = currentDialogId
     const blob = new Blob(recordedChunks, { type: mediaRecorder.mimeType })
     const arrayBuffer = await blob.arrayBuffer()
     const duration = Math.round((Date.now() - recordingStartTime) / 1000)
     try {
       announce('Sending voice message...')
-      const msg = await window.electronAPI.tg.sendVoiceMessage(currentDialogId, arrayBuffer, duration)
-      appendMessage(msg)
+      const msg = await window.electronAPI.tg.sendVoiceMessage(chatId, arrayBuffer, duration)
+      if (currentDialogId === chatId) appendMessage(msg)
       showComposerUI()
     } catch (err) {
       console.error('Failed to send voice message:', err)
@@ -2148,7 +2175,7 @@ export function MainAppScreen() {
   })
 
   // Escape closes the current chat or cancels recording
-  document.addEventListener('keydown', (e) => {
+  function mainAppKeyHandler(e) {
     if (e.key === 'PageUp' && currentDialogId) {
       e.preventDefault()
       loadMoreMessages()
@@ -2183,7 +2210,14 @@ export function MainAppScreen() {
         closeDialog()
       }
     }
-  })
+  }
+  document.addEventListener('keydown', mainAppKeyHandler)
+
+  screenInternalsCleanup = () => {
+    clearAllTyping()
+    closeContextMenu(false)
+    document.removeEventListener('keydown', mainAppKeyHandler)
+  }
 
   loadDialogs()
 
@@ -2210,6 +2244,8 @@ export function cleanupMainApp() {
   replyingTo = null
   editingMessage = null
   isPreviewing = false
-  clearAllTyping()
-  closeContextMenu(false)
+  if (screenInternalsCleanup) {
+    screenInternalsCleanup()
+    screenInternalsCleanup = null
+  }
 }

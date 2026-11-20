@@ -134,4 +134,21 @@ describe('showMessageDetailsDialog', () => {
 
     expect(timestampInput.value).toBe(new Date(normalizedDate * 1000).toLocaleTimeString())
   })
+
+  it('renders malicious sender names and message text as plain values, not HTML', () => {
+    const payload = '</textarea><img id="xss-probe" src=x onerror="window.__xss=1">'
+    showMessageDetailsDialog({
+      date: 1779322658,
+      isOutgoing: false,
+      senderName: '"><script>window.__xss2=1</script>',
+      text: payload,
+    })
+
+    expect(document.getElementById('xss-probe')).toBeNull()
+    expect(document.getElementById('xss-probe2')).toBeNull()
+    expect(window.__xss).toBeUndefined()
+    expect(window.__xss2).toBeUndefined()
+    expect(document.getElementById('msg-text').value).toBe(payload)
+    expect(document.getElementById('msg-sender').value).toBe('"><script>window.__xss2=1</script>')
+  })
 })

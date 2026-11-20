@@ -21,6 +21,7 @@ class TelegramManager {
     this.window = null
     this.dialogsCache = new Map()
     this.messagesCache = new Map()
+    this.allowedFilePaths = new Set()
     this.loadSession()
   }
 
@@ -67,6 +68,30 @@ class TelegramManager {
 
   setWindow(win) {
     this.window = win
+  }
+
+  // Telegram message IDs are only unique per chat, so the cache is keyed by
+  // "<chatId>:<messageId>". The chat key uses the same stringified msg.chatId
+  // that update routing already relies on (update.chatId === dialog.id).
+  chatKeyOf(msg) {
+    if (msg.chatId !== undefined && msg.chatId !== null) return String(msg.chatId)
+    const peer = msg.peerId
+    if (peer) {
+      if (peer.className === 'PeerUser') return String(peer.userId)
+      if (peer.className === 'PeerChat') return `-${peer.chatId}`
+      if (peer.className === 'PeerChannel') return `-100${peer.channelId}`
+    }
+    return ''
+  }
+
+  messageKey(msg) {
+    return `${this.chatKeyOf(msg)}:${Number(msg.id)}`
+  }
+
+  getCachedMessage(chatId, messageId) {
+    const msg = this.messagesCache.get(`${String(chatId)}:${Number(messageId)}`)
+    if (!msg) throw new Error('Message not found')
+    return msg
   }
 
   async connect(apiId, apiHash) {
@@ -242,7 +267,7 @@ class TelegramManager {
     if (!this.client) return
     this.client.addEventHandler(async (event) => {
       const msg = event.message
-      this.messagesCache.set(Number(msg.id), msg)
+      this.messagesCache.set(this.messageKey(msg), msg)
       const sender = await msg.getSender()
       const voiceInfo = this.getVoiceInfo(msg)
       const serviceText = await this.getServiceText(msg)
@@ -252,7 +277,8 @@ class TelegramManager {
       if (msg.replyToMsgId) {
         const original = await msg.getReplyMessage()
         if (original) {
-          this.messagesCache.set(Number(original.id), original)
+          if (original.chatId === undefined || original.chatId === null) original.chatId = msg.chatId
+          this.messagesCache.set(this.messageKey(original), original)
           replyTo = {
             id: original.id,
             senderName: original.out ? 'You' : this.getDisplayName(original.sender),
@@ -344,7 +370,7 @@ class TelegramManager {
           } catch (err) {
             console.error('Failed to fetch edited message, using raw update:', err)
           }
-          this.messagesCache.set(Number(msg.id), msg)
+          this.messagesCache.set(this.messageKey(msg), msg)
           const voiceInfo = this.getVoiceInfo(msg)
           const fileInfo = this.getFileInfo(msg)
           const photoInfo = this.getPhotoInfo(msg)
@@ -486,7 +512,7 @@ class TelegramManager {
     const msgMap = new Map()
     messages.forEach(m => msgMap.set(m.id, m))
     const result = await Promise.all(messages.map(async (m) => {
-      this.messagesCache.set(Number(m.id), m)
+      this.messagesCache.set(this.messageKey(m), m)
       const voiceInfo = this.getVoiceInfo(m)
       const serviceText = await this.getServiceText(m)
       const fileInfo = this.getFileInfo(m)
@@ -531,7 +557,7 @@ class TelegramManager {
     const cached = this.dialogsCache.get(dialogId)
     const entity = cached || dialogId
     const result = await this.client.sendMessage(entity, { message: text, replyTo: replyToMsgId || undefined })
-    this.messagesCache.set(Number(result.id), result)
+    this.messagesCache.set(this.messageKey(result), result)
     const me = await this.client.getMe()
     const voiceInfo = this.getVoiceInfo(result)
     const serviceText = await this.getServiceText(result)
@@ -555,17 +581,16 @@ class TelegramManager {
     const entity = cached || dialogId
     const result = await this.client.editMessage(entity, { message: messageId, text: newText })
     if (!result) throw new Error('Edit returned no message')
-    this.messagesCache.set(Number(result.id), result)
+    this.messagesCache.set(this.messageKey(result), result)
     return {
       id: result.id,
       text: result.text || ''
     }
   }
 
-  async clickInlineButton(messageId, row, col) {
+  async clickInlineButton(chatId, messageId, row, col) {
     if (!this.client) throw new Error('Not connected')
-    const msg = this.messagesCache.get(Number(messageId))
-    if (!msg) throw new Error('Message not found')
+    const msg = this.getCachedMessage(chatId, messageId)
     const result = await msg.click({ i: row, j: col })
     if (typeof result === 'string') {
       return { type: 'url', url: result }
@@ -608,7 +633,7 @@ class TelegramManager {
         })
       ]
     })
-    this.messagesCache.set(Number(result.id), result)
+    this.messagesCache.set(this.messageKey(result), result)
     const me = await this.client.getMe()
     const voiceInfo = this.getVoiceInfo(result)
     const serviceText = await this.getServiceText(result)
@@ -628,18 +653,25 @@ class TelegramManager {
 
   async sendFiles(dialogId, filePaths, caption = '', replyToMsgId = null) {
     if (!this.client) throw new Error('Not connected')
+    if (!Array.isArray(filePaths) || filePaths.length === 0) throw new Error('No files selected')
+    // Only send files the user explicitly picked in the open dialog; this
+    // prevents a compromised renderer from uploading arbitrary local paths.
+    const resolved = filePaths.map((p) => path.resolve(String(p)))
+    for (const p of resolved) {
+      if (!this.allowedFilePaths.has(p)) throw new Error('File not selected through the open dialog')
+    }
     const cached = this.dialogsCache.get(dialogId)
     const entity = cached || dialogId
     const sentMessages = []
-    for (let i = 0; i < filePaths.length; i++) {
-      const filePath = filePaths[i]
+    for (let i = 0; i < resolved.length; i++) {
+      const filePath = resolved[i]
       const fileCaption = i === 0 ? caption : ''
       const replyTo = i === 0 && replyToMsgId ? replyToMsgId : undefined
       const isImage = /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(filePath)
       const result = await this.client.sendFile(entity, { file: filePath, forceDocument: !isImage, caption: fileCaption, replyTo })
       const msg = Array.isArray(result) ? result[0] : result
       if (msg) {
-        this.messagesCache.set(Number(msg.id), msg)
+        this.messagesCache.set(this.messageKey(msg), msg)
         const voiceInfo = this.getVoiceInfo(msg)
         const serviceText = await this.getServiceText(msg)
         const fileInfo = this.getFileInfo(msg)
@@ -665,13 +697,13 @@ class TelegramManager {
         })
       }
     }
+    for (const p of resolved) this.allowedFilePaths.delete(p)
     return sentMessages
   }
 
-  async downloadFile(messageId, defaultFileName) {
+  async downloadFile(chatId, messageId, defaultFileName) {
     if (!this.client) throw new Error('Not connected')
-    const msg = this.messagesCache.get(Number(messageId))
-    if (!msg) throw new Error('Message not found')
+    const msg = this.getCachedMessage(chatId, messageId)
     const buffer = await this.client.downloadMedia(msg)
     if (!buffer) throw new Error('Failed to download file')
     const { filePath } = await dialog.showSaveDialog(this.window, {
@@ -687,22 +719,22 @@ class TelegramManager {
     const { filePaths } = await dialog.showOpenDialog(this.window, {
       properties: ['openFile', 'multiSelections']
     })
-    return filePaths || []
+    const paths = filePaths || []
+    for (const p of paths) this.allowedFilePaths.add(path.resolve(p))
+    return paths
   }
 
-  async downloadVoiceMessage(messageId) {
+  async downloadVoiceMessage(chatId, messageId) {
     if (!this.client) throw new Error('Not connected')
-    const msg = this.messagesCache.get(Number(messageId))
-    if (!msg) throw new Error('Message not found')
+    const msg = this.getCachedMessage(chatId, messageId)
     const buffer = await this.client.downloadMedia(msg)
     if (!buffer) throw new Error('Failed to download voice message')
     return buffer
   }
 
-  async downloadPhoto(messageId) {
+  async downloadPhoto(chatId, messageId) {
     if (!this.client) throw new Error('Not connected')
-    const msg = this.messagesCache.get(Number(messageId))
-    if (!msg) throw new Error('Message not found')
+    const msg = this.getCachedMessage(chatId, messageId)
     const buffer = await this.client.downloadMedia(msg)
     if (!buffer) throw new Error('Failed to download photo')
     return buffer
@@ -713,6 +745,8 @@ class TelegramManager {
       await this.client.disconnect()
       this.client = null
     }
+    this.messagesCache.clear()
+    this.allowedFilePaths.clear()
   }
 
   async searchGlobal(query) {

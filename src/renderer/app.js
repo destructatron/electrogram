@@ -86,29 +86,48 @@ export function showMessageDetailsDialog(messageData) {
   const timestamp = new Date(normalizeDate(messageData.date) * 1000).toLocaleTimeString()
   const senderDisplay = messageData.isOutgoing ? 'You' : (messageData.senderName || 'Unknown')
 
-  dialog.innerHTML = `
-    <div class="message-details-content">
-      <h2 class="message-details-title">Message Details</h2>
-      <div class="message-details-field">
-        <label for="msg-sender">Sender</label>
-        <input type="text" id="msg-sender" value="${senderDisplay}" readonly tabindex="0">
-      </div>
-      <div class="message-details-field">
-        <label for="msg-timestamp">Timestamp</label>
-        <input type="text" id="msg-timestamp" value="${timestamp}" readonly tabindex="0">
-      </div>
-      <div class="message-details-field">
-        <label for="msg-text">Text</label>
-        <textarea id="msg-text" rows="6" readonly tabindex="0">${messageData.text || ''}</textarea>
-      </div>
-      <button id="msg-details-close" type="button">Close</button>
-    </div>
-  `
+  // Built with DOM APIs so untrusted sender names / message text can never be parsed as HTML
+  const content = document.createElement('div')
+  content.className = 'message-details-content'
+
+  const title = document.createElement('h2')
+  title.className = 'message-details-title'
+  title.textContent = 'Message Details'
+  content.appendChild(title)
+
+  const addField = (id, labelText, value, multiline) => {
+    const field = document.createElement('div')
+    field.className = 'message-details-field'
+    const label = document.createElement('label')
+    label.setAttribute('for', id)
+    label.textContent = labelText
+    const input = document.createElement(multiline ? 'textarea' : 'input')
+    input.id = id
+    if (!multiline) input.type = 'text'
+    input.readOnly = true
+    input.tabIndex = 0
+    if (multiline) input.rows = 6
+    input.value = value
+    field.appendChild(label)
+    field.appendChild(input)
+    content.appendChild(field)
+  }
+
+  addField('msg-sender', 'Sender', senderDisplay, false)
+  addField('msg-timestamp', 'Timestamp', timestamp, false)
+  addField('msg-text', 'Text', messageData.text || '', true)
+
+  const closeBtn = document.createElement('button')
+  closeBtn.id = 'msg-details-close'
+  closeBtn.type = 'button'
+  closeBtn.textContent = 'Close'
+  content.appendChild(closeBtn)
+
+  dialog.appendChild(content)
 
   document.body.appendChild(dialog)
   messageDetailsDialog = dialog
 
-  const closeBtn = dialog.querySelector('#msg-details-close')
   closeBtn.addEventListener('click', closeMessageDetailsDialog)
 
   // Close on backdrop click (click outside the content area)
